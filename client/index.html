@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boss Raid Game</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Text Boss Raid Game</h1>
+
+        <!-- Single Page Layout -->
+        <div class="single-page-layout">
+            <!-- Left Panel: Character & Game Controls -->
+            <div class="left-panel">
+                <!-- Character Panel -->
+                <div class="panel character-panel">
+                    <h3>Your Character</h3>
+                    <div id="character-stats" class="stats-panel">
+                        <p>Health: <span id="character-health">100</span></p>
+                        <p>Attack: <span id="character-attack">10</span></p>
+                        <p>Defense: <span id="character-defense">5</span></p>
+                    </div>
+
+                    <h3>Equipment</h3>
+                    <div id="equipment" class="equipment-panel">
+                        <p>Weapon: <span id="equipped-weapon">None</span></p>
+                        <p>Armor: <span id="equipped-armor">None</span></p>
+                    </div>
+
+                    <h3>Inventory</h3>
+                    <div id="inventory" class="inventory-panel">
+                        <p>No items in inventory</p>
+                    </div>
+                </div>
+
+                <!-- Game Controls Panel -->
+                <div class="panel game-controls-panel">
+                    <h3>Game Controls</h3>
+                    <div id="game-controls" class="controls-container">
+                        <!-- Player Name Input -->
+                        <div id="player-name-controls" class="control-section">
+                            <div class="form-group">
+                                <label for="player-name">Your Name:</label>
+                                <input type="text" id="player-name" placeholder="Enter your name">
+                            </div>
+                        </div>
+
+                        <!-- Room Creation -->
+                        <div id="room-creation-controls" class="control-section">
+                            <div class="form-group">
+                                <label for="room-name">Room Name:</label>
+                                <input type="text" id="room-name" placeholder="Enter room name">
+                                <button id="create-room-submit" class="btn">Create Room</button>
+                            </div>
+                        </div>
+
+                        <!-- Game Status -->
+                        <div id="game-status" class="control-section">
+                            <p>Status: <span id="game-status-text">Not connected</span></p>
+                            <p>Room: <span id="current-room-name">None</span></p>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div id="action-buttons" class="control-section">
+                            <button id="ready-btn" class="btn" disabled>Ready</button>
+                            <button id="attack-btn" class="btn btn-attack" disabled>Attack!</button>
+                            <button id="leave-btn" class="btn btn-secondary" disabled>Leave</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Panel: Boss & Players -->
+            <div class="middle-panel">
+                <!-- Boss Panel -->
+                <div class="panel boss-panel">
+                    <h3>Boss: <span id="boss-name">Unknown</span></h3>
+                    <div class="boss-health-bar">
+                        <div id="boss-health-fill"></div>
+                    </div>
+                    <p>Health: <span id="boss-health">0</span>/<span id="boss-max-health">0</span></p>
+                </div>
+
+                <!-- Players Panel -->
+                <div class="panel players-panel">
+                    <h3>Players</h3>
+                    <div id="players-list" class="players-list">
+                        <p>No players connected</p>
+                    </div>
+                </div>
+
+                <!-- Event Log Panel -->
+                <div class="panel event-log-panel">
+                    <h3>Event Log</h3>
+                    <div id="event-log" class="event-log">
+                        <p>Welcome to Boss Raid!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Room List & Game Info -->
+            <div class="right-panel">
+                <!-- Room List Panel -->
+                <div class="panel rooms-panel">
+                    <h3>Available Rooms</h3>
+                    <button id="refresh-rooms" class="btn">Refresh</button>
+                    <div id="rooms-list" class="rooms-list">
+                        <p>No rooms available</p>
+                    </div>
+                </div>
+
+                <!-- Game Results Panel -->
+                <div id="results-panel" class="panel results-panel hidden">
+                    <h3 id="result-title">Game Over</h3>
+                    <p id="result-message"></p>
+
+                    <div id="rewards-panel" class="rewards-panel hidden">
+                        <h3>Rewards</h3>
+                        <div id="rewards-list" class="rewards-list">
+                            <p>No rewards received</p>
+                        </div>
+                    </div>
+
+                    <button id="play-again-btn" class="btn">Play Again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

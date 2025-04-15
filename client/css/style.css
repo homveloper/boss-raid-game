@@ -1,0 +1,599 @@
+/* General Styles */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f4f4f4;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+h1, h2, h3 {
+    margin-bottom: 15px;
+    color: #333;
+}
+
+h1 {
+    text-align: center;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #333;
+    margin-bottom: 20px;
+}
+
+h3 {
+    font-size: 1.2rem;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+}
+
+.screen {
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.hidden {
+    display: none;
+}
+
+.button-group {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+/* Single Page Layout Styles */
+.single-page-layout {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 20px;
+    height: calc(100vh - 150px);
+    min-height: 600px;
+}
+
+.left-panel, .middle-panel, .right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+}
+
+.panel {
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    flex: 0 0 auto;
+}
+
+.character-panel, .game-controls-panel {
+    flex: 1;
+}
+
+.boss-panel {
+    flex: 0 0 auto;
+}
+
+.players-panel {
+    flex: 0 0 auto;
+}
+
+.event-log-panel {
+    flex: 1;
+}
+
+.rooms-panel {
+    flex: 1;
+}
+
+.results-panel {
+    flex: 0 0 auto;
+}
+
+/* Control Sections */
+.control-section {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #eee;
+}
+
+.controls-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Game Status Styles */
+#game-status-text {
+    font-weight: bold;
+}
+
+.status-disconnected {
+    color: #999;
+}
+
+.status-connected {
+    color: #2196F3;
+}
+
+.status-waiting {
+    color: #FF9800;
+}
+
+.status-playing {
+    color: #4CAF50;
+}
+
+.status-finished {
+    color: #F44336;
+}
+
+.btn {
+    padding: 10px 20px;
+    background-color: #3498db;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s;
+}
+
+.btn:hover {
+    background-color: #2980b9;
+}
+
+.btn-secondary {
+    background-color: #95a5a6;
+}
+
+.btn-secondary:hover {
+    background-color: #7f8c8d;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+input[type="text"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.rooms-list {
+    margin-bottom: 20px;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+.room-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.room-item:hover {
+    background-color: #f5f5f5;
+}
+
+.room-item:last-child {
+    border-bottom: none;
+}
+
+.players-list {
+    margin-bottom: 20px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+.player-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.player-item:last-child {
+    border-bottom: none;
+}
+
+.player-ready {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.player-not-ready {
+    color: #e74c3c;
+}
+
+.game-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+}
+
+.player-info {
+    display: flex;
+    gap: 20px;
+}
+
+.player {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    border-radius: 4px;
+    background-color: #eee;
+}
+
+.player-active {
+    background-color: #d5f5e3;
+    border: 2px solid #27ae60;
+}
+
+.player-name {
+    font-weight: bold;
+}
+
+.player-mark {
+    font-size: 20px;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+.turn-indicator {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.board {
+    display: flex;
+    flex-direction: column;
+    margin: 0 auto;
+    width: 300px;
+    height: 300px;
+    background-color: #fff;
+    border: 2px solid #3498db;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.row {
+    display: flex;
+    flex: 1;
+}
+
+.cell {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 48px;
+    font-weight: bold;
+    cursor: pointer;
+    border: 1px solid #3498db;
+    transition: background-color 0.3s;
+}
+
+.cell:hover {
+    background-color: #eaf2f8;
+}
+
+.cell-x {
+    color: #e74c3c;
+}
+
+.cell-o {
+    color: #3498db;
+}
+
+#result-title {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+#result-message {
+    text-align: center;
+    font-size: 20px;
+    margin-bottom: 30px;
+}
+
+/* Game Panel Styles */
+.stats-panel, .equipment-panel, .inventory-panel {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    border: 1px solid #eee;
+}
+
+.inventory-item {
+    padding: 8px;
+    margin-bottom: 5px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.inventory-item:hover {
+    background-color: #f0f0f0;
+}
+
+.inventory-item.equipped {
+    background-color: #e8f5e9;
+    border-color: #4CAF50;
+}
+
+/* Boss Panel Styles */
+.boss-panel {
+    text-align: center;
+}
+
+.boss-health-bar {
+    height: 30px;
+    background-color: #e0e0e0;
+    border-radius: 15px;
+    margin: 15px 0;
+    overflow: hidden;
+}
+
+#boss-health-fill {
+    height: 100%;
+    background-color: #f44336;
+    width: 100%;
+    transition: width 0.3s ease-in-out;
+}
+
+/* Room List Styles */
+.rooms-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+#refresh-rooms {
+    align-self: flex-end;
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    font-size: 0.9rem;
+}
+
+.room-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    margin-bottom: 8px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.room-item:hover {
+    background-color: #e9e9e9;
+}
+
+.room-name {
+    font-weight: bold;
+}
+
+.room-status {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+/* Event Log Styles */
+.event-log {
+    height: 250px;
+    overflow-y: auto;
+    padding: 10px;
+    background-color: #fff;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.event-log p {
+    margin-bottom: 5px;
+    padding: 5px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.event-log .event-player-join {
+    color: #2196F3;
+}
+
+.event-log .event-player-ready {
+    color: #4CAF50;
+}
+
+.event-log .event-game-start {
+    color: #9C27B0;
+    font-weight: bold;
+}
+
+.event-log .event-player-attack {
+    color: #FF9800;
+}
+
+.event-log .event-boss-attack {
+    color: #F44336;
+}
+
+.event-log .event-player-defeated {
+    color: #795548;
+    font-style: italic;
+}
+
+.event-log .event-game-end {
+    color: #9C27B0;
+    font-weight: bold;
+}
+
+/* Players List Styles */
+.players-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    background-color: #fff;
+}
+
+.player-item {
+    padding: 8px;
+    margin-bottom: 5px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.player-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.player-ready {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.player-not-ready {
+    color: #F44336;
+}
+
+/* Rewards Panel Styles */
+.rewards-panel {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #fff8e1;
+    border-radius: 5px;
+    border: 1px solid #ffecb3;
+}
+
+.rewards-list {
+    padding: 10px;
+}
+
+.reward-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    background-color: #fff;
+    border-radius: 4px;
+    border: 1px solid #ffecb3;
+    display: flex;
+    justify-content: space-between;
+}
+
+.reward-gold {
+    color: #ffc107;
+    font-weight: bold;
+}
+
+.reward-item {
+    color: #ff9800;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .single-page-layout {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .right-panel {
+        grid-column: span 2;
+        grid-row: 2;
+    }
+
+    .rooms-panel {
+        max-height: 300px;
+    }
+}
+
+@media (max-width: 768px) {
+    .single-page-layout {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .left-panel, .middle-panel, .right-panel {
+        grid-column: 1;
+    }
+
+    .right-panel {
+        grid-row: 3;
+    }
+
+    .button-group {
+        flex-direction: column;
+    }
+
+    .btn {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+
+    .panel {
+        max-height: none;
+    }
+
+    .event-log {
+        height: 150px;
+    }
+}
+
+/* Auto-attack styles */
+.auto-attack-indicator {
+    font-size: 0.8em;
+    opacity: 0.8;
+    margin-left: 5px;
+    color: #fff;
+}
+
+@keyframes attacking {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); background-color: #e74c3c; }
+    100% { transform: scale(1); }
+}
+
+.attacking {
+    animation: attacking 0.2s ease-in-out;
+}
