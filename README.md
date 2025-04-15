@@ -140,9 +140,7 @@ build.bat -h
 
 Pre-built binaries are available for the following platforms:
 
-- [Windows (64-bit)](https://github.com/yourusername/boss-raid-game/releases/latest/download/boss-raid-game_windows_amd64.exe)
-- [macOS (64-bit)](https://github.com/yourusername/boss-raid-game/releases/latest/download/boss-raid-game_darwin_amd64)
-- [Linux (64-bit)](https://github.com/yourusername/boss-raid-game/releases/latest/download/boss-raid-game_linux_amd64)
+- [Binaries](https://github.com/homveloper/boss-raid-game/releases/tag/v1.0.0)
 
 Download the appropriate binary for your platform, make it executable (on macOS/Linux), and run it.
 
