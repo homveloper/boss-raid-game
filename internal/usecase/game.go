@@ -25,21 +25,30 @@ func NewGameUseCase(gameRepo domain.GameRepository) *GameUseCase {
 
 // Create creates a new game
 func (uc *GameUseCase) Create(roomID string) (*domain.Game, error) {
+	// 디버깅 로그 추가
+	fmt.Printf("Creating game for room ID: %s\n", roomID)
+
 	// Generate a unique ID for the game
 	gameID := uuid.New().String()
+	fmt.Printf("Generated game ID: %s\n", gameID)
 
 	// Create a new game
 	game := domain.NewGame(gameID, roomID)
+	fmt.Printf("Game object created: %+v\n", game)
 
 	// Initialize the boss
 	game.Boss = domain.NewRandomBoss()
+	fmt.Printf("Boss initialized: %+v\n", game.Boss)
 
 	// Save the game to the repository
+	fmt.Printf("Saving game to repository\n")
 	err := uc.gameRepo.Create(game)
 	if err != nil {
+		fmt.Printf("Error saving game: %v\n", err)
 		return nil, fmt.Errorf("failed to create game: %w", err)
 	}
 
+	fmt.Printf("Game saved successfully\n")
 	return game, nil
 }
 
@@ -287,4 +296,89 @@ func (uc *GameUseCase) EquipItem(gameID, playerID, itemID string) (*domain.Game,
 	}
 
 	return game, nil
+}
+
+// StartCrafting starts crafting an item
+func (uc *GameUseCase) StartCrafting(gameID, playerID, itemID string) (*domain.Game, error) {
+	// Get the game from the repository
+	game, err := uc.gameRepo.Get(gameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game: %w", err)
+	}
+
+	// Start crafting the item
+	_, err = game.StartCrafting(playerID, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start crafting: %w", err)
+	}
+
+	// Update the game in the repository
+	game.UpdatedAt = time.Now()
+	err = uc.gameRepo.Update(game)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update game: %w", err)
+	}
+
+	return game, nil
+}
+
+// HelpCrafting helps another player's crafting
+func (uc *GameUseCase) HelpCrafting(gameID, playerID, craftingID string) (*domain.Game, error) {
+	// Get the game from the repository
+	game, err := uc.gameRepo.Get(gameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game: %w", err)
+	}
+
+	// Help with the crafting
+	_, err = game.HelpCrafting(playerID, craftingID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to help crafting: %w", err)
+	}
+
+	// Update the game in the repository
+	game.UpdatedAt = time.Now()
+	err = uc.gameRepo.Update(game)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update game: %w", err)
+	}
+
+	return game, nil
+}
+
+// GetCraftingItems gets all crafting items for a game
+func (uc *GameUseCase) GetCraftingItems(gameID string) (*domain.Game, []domain.CraftingItem, error) {
+	// Get the game from the repository
+	game, err := uc.gameRepo.Get(gameID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get game: %w", err)
+	}
+
+	// Get the crafting items
+	craftingItems := game.GetCraftingItems()
+
+	// Update the game in the repository if status changed
+	if game.CraftingSystem.UpdateCraftingStatus() {
+		game.UpdatedAt = time.Now()
+		err = uc.gameRepo.Update(game)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to update game: %w", err)
+		}
+	}
+
+	return game, craftingItems, nil
+}
+
+// GetCraftableItems gets all craftable items for a game
+func (uc *GameUseCase) GetCraftableItems(gameID string) (*domain.Game, []domain.CraftableItem, error) {
+	// Get the game from the repository
+	game, err := uc.gameRepo.Get(gameID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get game: %w", err)
+	}
+
+	// Get the craftable items
+	craftableItems := game.GetCraftableItems()
+
+	return game, craftableItems, nil
 }

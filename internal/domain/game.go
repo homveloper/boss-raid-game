@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"time"
 )
@@ -54,32 +55,38 @@ type GameEvent struct {
 
 // Game represents a boss raid game
 type Game struct {
-	ID        string               `json:"id"`
-	RoomID    string               `json:"roomId"`
-	State     GameState            `json:"state"`
-	Result    GameResult           `json:"result"`
-	Players   map[string]*Player   `json:"players"`
-	Boss      *Boss                `json:"boss"`
-	Rewards   map[string][]*Reward `json:"rewards"` // Map of player ID to rewards
-	StartTime time.Time            `json:"startTime"`
-	EndTime   time.Time            `json:"endTime"`
-	Events    []GameEvent          `json:"events"`
-	CreatedAt time.Time            `json:"createdAt"`
-	UpdatedAt time.Time            `json:"updatedAt"`
+	ID             string               `json:"id"`
+	RoomID         string               `json:"roomId"`
+	State          GameState            `json:"state"`
+	Result         GameResult           `json:"result"`
+	Players        map[string]*Player   `json:"players"`
+	Boss           *Boss                `json:"boss"`
+	Rewards        map[string][]*Reward `json:"rewards"` // Map of player ID to rewards
+	StartTime      time.Time            `json:"startTime"`
+	EndTime        time.Time            `json:"endTime"`
+	Events         []GameEvent          `json:"events"`
+	CreatedAt      time.Time            `json:"createdAt"`
+	UpdatedAt      time.Time            `json:"updatedAt"`
+	CraftingSystem *CraftingSystem      `json:"craftingSystem"` // 협동 아이템 제작 시스템
 }
 
 // NewGame creates a new game
 func NewGame(id, roomID string) *Game {
+	// 제작 시스템 초기화
+	craftingSystem := NewCraftingSystem()
+	craftingSystem.InitDefaultCraftableItems()
+
 	return &Game{
-		ID:        id,
-		RoomID:    roomID,
-		State:     GameStateWaiting,
-		Result:    GameResultNone,
-		Players:   make(map[string]*Player),
-		Rewards:   make(map[string][]*Reward),
-		Events:    make([]GameEvent, 0),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:             id,
+		RoomID:         roomID,
+		State:          GameStateWaiting,
+		Result:         GameResultNone,
+		Players:        make(map[string]*Player),
+		Rewards:        make(map[string][]*Reward),
+		Events:         make([]GameEvent, 0),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		CraftingSystem: craftingSystem,
 	}
 }
 
@@ -129,8 +136,15 @@ func (g *Game) SetPlayerReady(id string) error {
 		return errors.New("player not in game")
 	}
 
-	player.Ready = true
-	g.AddEvent("player_ready", player.Name+" is ready", player)
+	// 이미 준비 상태인 경우 준비 취소로 변경
+	if player.Ready {
+		player.Ready = false
+		g.AddEvent("player_not_ready", player.Name+" is not ready", player)
+	} else {
+		player.Ready = true
+		g.AddEvent("player_ready", player.Name+" is ready", player)
+	}
+
 	g.UpdatedAt = time.Now()
 
 	// Check if all players are ready
@@ -142,8 +156,8 @@ func (g *Game) SetPlayerReady(id string) error {
 		}
 	}
 
-	// If all players are ready and there are 3 players, start the game
-	if allReady && len(g.Players) == 3 {
+	// If all players are ready and there are at least 1 player, start the game
+	if allReady && len(g.Players) >= 1 {
 		g.StartGame()
 	}
 
@@ -343,6 +357,155 @@ type GameRepository interface {
 	List() ([]*Game, error)
 }
 
+// StartCrafting starts crafting an item
+func (g *Game) StartCrafting(playerID, itemID string) (*CraftingItem, error) {
+	// 플레이어 확인
+	player, exists := g.Players[playerID]
+	if !exists {
+		return nil, errors.New("player not in game")
+	}
+
+	// 제작 가능한 아이템인지 확인
+	craftableItem, exists := g.CraftingSystem.CraftableItems[itemID]
+	if !exists {
+		return nil, errors.New("item not available for crafting")
+	}
+
+	// 플레이어가 이미 제작 중인 아이템이 있는지 확인
+	for _, item := range g.CraftingSystem.CraftingItems {
+		if item.CrafterID == playerID && item.Status == "in_progress" {
+			return nil, errors.New("player already crafting an item")
+		}
+	}
+
+	// 새 제작 아이템 생성
+	craftingID := generateCraftingID()
+	craftingItem := CraftingItem{
+		ID:                  craftingID,
+		ItemID:              itemID,
+		CrafterID:           playerID,
+		CrafterName:         player.Name,
+		StartTime:           time.Now(),
+		OriginalTimeMinutes: craftableItem.BaseTimeMinutes,
+		CurrentTimeMinutes:  craftableItem.BaseTimeMinutes,
+		Helpers:             make(map[string]int),
+		Status:              "in_progress",
+	}
+
+	// 제작 목록에 추가
+	g.CraftingSystem.CraftingItems[craftingID] = craftingItem
+	g.CraftingSystem.LastUpdated = time.Now()
+
+	// 이벤트 추가
+	g.AddEvent("crafting_started", player.Name+" started crafting "+craftableItem.Name, map[string]interface{}{
+		"craftingId": craftingID,
+		"itemId":     itemID,
+		"playerId":   playerID,
+	})
+
+	return &craftingItem, nil
+}
+
+// HelpCrafting helps another player's crafting
+func (g *Game) HelpCrafting(helperID, craftingID string) (*CraftingItem, error) {
+	// 플레이어 확인
+	helper, exists := g.Players[helperID]
+	if !exists {
+		return nil, errors.New("helper player not in game")
+	}
+
+	// 제작 중인 아이템 확인
+	craftingItem, exists := g.CraftingSystem.CraftingItems[craftingID]
+	if !exists {
+		return nil, errors.New("crafting item not found")
+	}
+
+	// 제작 중인 상태인지 확인
+	if craftingItem.Status != "in_progress" {
+		return nil, errors.New("item is not in progress")
+	}
+
+	// 자신의 아이템인지 확인
+	if craftingItem.CrafterID == helperID {
+		return nil, errors.New("cannot help your own crafting")
+	}
+
+	// 이미 도움을 준 시간 확인 (1시간에 한 번만 도움 가능)
+	lastHelpTime := g.CraftingSystem.GetLastHelpTime(helperID, craftingID)
+	if !lastHelpTime.IsZero() && time.Since(lastHelpTime) < time.Hour {
+		return nil, errors.New("already helped this item recently")
+	}
+
+	// 도움 횟수 증가
+	if _, exists := craftingItem.Helpers[helperID]; !exists {
+		craftingItem.Helpers[helperID] = 0
+	}
+	craftingItem.Helpers[helperID]++
+
+	// 제작 시간 감소 (1분)
+	timeReduction := 1
+	craftingItem.CurrentTimeMinutes -= timeReduction
+	if craftingItem.CurrentTimeMinutes < 0 {
+		craftingItem.CurrentTimeMinutes = 0
+	}
+
+	// 제작 완료 확인
+	if g.CraftingSystem.IsCraftingCompleted(craftingID) {
+		craftingItem.Status = "completed"
+		g.AddEvent("crafting_completed", craftingItem.CrafterName+"'s "+
+			g.CraftingSystem.CraftableItems[craftingItem.ItemID].Name+" crafting completed", map[string]interface{}{
+			"craftingId": craftingID,
+			"itemId":     craftingItem.ItemID,
+			"playerId":   craftingItem.CrafterID,
+		})
+	}
+
+	// 상태 업데이트
+	g.CraftingSystem.CraftingItems[craftingID] = craftingItem
+	g.CraftingSystem.LastUpdated = time.Now()
+
+	// 이벤트 추가
+	g.AddEvent("crafting_helped", helper.Name+" helped "+craftingItem.CrafterName+"'s crafting", map[string]interface{}{
+		"craftingId":    craftingID,
+		"itemId":        craftingItem.ItemID,
+		"helperId":      helperID,
+		"timeReduction": timeReduction,
+	})
+
+	return &craftingItem, nil
+}
+
+// GetCraftingItems gets all crafting items
+func (g *Game) GetCraftingItems() []CraftingItem {
+	// 상태 업데이트 (완료된 아이템 확인)
+	g.CraftingSystem.UpdateCraftingStatus()
+
+	// 제작 중인 아이템만 필터링
+	var items []CraftingItem
+	for _, item := range g.CraftingSystem.CraftingItems {
+		items = append(items, item)
+	}
+
+	return items
+}
+
+// GetCraftableItems gets all craftable items
+func (g *Game) GetCraftableItems() []CraftableItem {
+	var items []CraftableItem
+	for _, item := range g.CraftingSystem.CraftableItems {
+		items = append(items, item)
+	}
+
+	return items
+}
+
+// generateCraftingID generates a random ID for crafting items
+func generateCraftingID() string {
+	// 실제 구현에서는 UUID 라이브러리를 사용하는 것이 좋습니다.
+	// 여기서는 간단히 난수를 사용합니다.
+	return fmt.Sprintf("craft_%d", time.Now().UnixNano())
+}
+
 // GameUseCase defines the methods for game business logic
 type GameUseCase interface {
 	Create(roomID string) (*Game, error)
@@ -353,5 +516,9 @@ type GameUseCase interface {
 	ProcessBossAttack(gameID string) (*Game, error)
 	ProcessBossAction(gameID string) (*Game, *Player, int, error) // Returns game, target player, damage, error
 	EquipItem(gameID, playerID, itemID string) (*Game, error)
+	StartCrafting(gameID, playerID, itemID string) (*Game, error)
+	HelpCrafting(gameID, playerID, craftingID string) (*Game, error)
+	GetCraftingItems(gameID string) (*Game, []CraftingItem, error)
+	GetCraftableItems(gameID string) (*Game, []CraftableItem, error)
 	List() ([]*Game, error)
 }

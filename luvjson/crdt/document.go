@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"tictactoe/luvjson/common"
-
-	"github.com/google/uuid"
 )
 
 // Document represents a JSON CRDT document.
@@ -33,13 +31,10 @@ func NewDocument(sessionID common.SessionID) *Document {
 		localSessionID: sessionID,
 	}
 
-	// Create the root node
-	// Use a zero UUID for the root node
-	zeroSID := common.SessionID{}
-	rootID := common.LogicalTimestamp{SID: zeroSID, Counter: 0}
-	rootVal := NewLWWValueNode(rootID, rootID, NewConstantNode(rootID, nil))
-	doc.root = rootVal
-	doc.index[rootID] = rootVal
+	// Create the root node pointing to the constant node's ID
+	rootNode := NewRootNode(common.RootID)
+	doc.root = rootNode
+	doc.index[common.RootID] = rootNode
 
 	return doc
 }
@@ -51,9 +46,9 @@ func (d *Document) Root() Node {
 
 // GetNode returns the node with the specified ID.
 func (d *Document) GetNode(id common.LogicalTimestamp) (Node, error) {
-	// Check if this is the root node ID (zero SessionID and zero Counter)
-	zeroSID := common.SessionID{}
-	if id.SID.Compare(zeroSID) == 0 && id.Counter == 0 {
+	// Check if this is the root node ID
+	if id.Compare(common.RootID) == 0 {
+		// Return the root node directly
 		return d.root, nil
 	}
 
@@ -181,6 +176,8 @@ func (d *Document) fromVerboseJSON(data []byte) error {
 	// Create the appropriate node type based on the type field
 	var root Node
 	switch common.NodeType(rootType.Type) {
+	case common.NodeTypeRoot:
+		root = &RootNode{}
 	case common.NodeTypeVal:
 		root = &LWWValueNode{}
 	case common.NodeTypeObj:
@@ -314,22 +311,22 @@ func (d *Document) fromBinaryJSON(data []byte) error {
 
 // patchOperation represents a JSON CRDT patch operation.
 type patchOperation struct {
-	Op        string          `json:"op"`
-	ID        []uint64        `json:"id"`
-	TargetID  []uint64        `json:"target,omitempty"`
-	NodeType  common.NodeType `json:"type,omitempty"`
-	Value     interface{}     `json:"value,omitempty"`
-	Key       string          `json:"key,omitempty"`
-	StartID   []uint64        `json:"start,omitempty"`
-	EndID     []uint64        `json:"end,omitempty"`
-	SpanValue uint64          `json:"len,omitempty"`
+	Op        string                  `json:"op"`
+	ID        common.LogicalTimestamp `json:"id"`
+	TargetID  common.LogicalTimestamp `json:"target,omitempty"`
+	NodeType  common.NodeType         `json:"type,omitempty"`
+	Value     interface{}             `json:"value,omitempty"`
+	Key       string                  `json:"key,omitempty"`
+	StartID   common.LogicalTimestamp `json:"start,omitempty"`
+	EndID     common.LogicalTimestamp `json:"end,omitempty"`
+	SpanValue uint64                  `json:"len,omitempty"`
 }
 
 // patch represents a JSON CRDT patch document.
 type patch struct {
-	ID         []uint64               `json:"id"`
-	Metadata   map[string]interface{} `json:"meta,omitempty"`
-	Operations []json.RawMessage      `json:"ops"`
+	ID         common.LogicalTimestamp `json:"id"`
+	Metadata   map[string]interface{}  `json:"meta,omitempty"`
+	Operations []json.RawMessage       `json:"ops"`
 }
 
 // ApplyPatch applies a JSON CRDT patch to the document.
@@ -369,50 +366,11 @@ func (d *Document) ApplyPatch(patchData []byte) error {
 
 // applyOperation applies a single operation to the document.
 func (d *Document) applyOperation(opType common.OperationType, op *patchOperation) error {
-	// Convert ID arrays to LogicalTimestamp
-	opID := common.LogicalTimestamp{}
-	if len(op.ID) == 2 {
-		// Create a SessionID from uint64
-		sidStr := fmt.Sprintf("%d", op.ID[0])
-		uuidVal, err := uuid.Parse(sidStr)
-		if err != nil {
-			uuidVal = uuid.Nil
-		}
-		opID = common.LogicalTimestamp{SID: common.SessionID(uuidVal), Counter: op.ID[1]}
-	}
-
-	targetID := common.LogicalTimestamp{}
-	if len(op.TargetID) == 2 {
-		// Create a SessionID from uint64
-		sidStr := fmt.Sprintf("%d", op.TargetID[0])
-		uuidVal, err := uuid.Parse(sidStr)
-		if err != nil {
-			uuidVal = uuid.Nil
-		}
-		targetID = common.LogicalTimestamp{SID: common.SessionID(uuidVal), Counter: op.TargetID[1]}
-	}
-
-	startID := common.LogicalTimestamp{}
-	if len(op.StartID) == 2 {
-		// Create a SessionID from uint64
-		sidStr := fmt.Sprintf("%d", op.StartID[0])
-		uuidVal, err := uuid.Parse(sidStr)
-		if err != nil {
-			uuidVal = uuid.Nil
-		}
-		startID = common.LogicalTimestamp{SID: common.SessionID(uuidVal), Counter: op.StartID[1]}
-	}
-
-	endID := common.LogicalTimestamp{}
-	if len(op.EndID) == 2 {
-		// Create a SessionID from uint64
-		sidStr := fmt.Sprintf("%d", op.EndID[0])
-		uuidVal, err := uuid.Parse(sidStr)
-		if err != nil {
-			uuidVal = uuid.Nil
-		}
-		endID = common.LogicalTimestamp{SID: common.SessionID(uuidVal), Counter: op.EndID[1]}
-	}
+	// IDs are already LogicalTimestamp, so no conversion needed
+	opID := op.ID
+	targetID := op.TargetID
+	startID := op.StartID
+	endID := op.EndID
 
 	// Apply the operation based on its type
 	switch opType {
@@ -428,6 +386,8 @@ func (d *Document) applyOperation(opType common.OperationType, op *patchOperatio
 			node = NewLWWObjectNode(opID)
 		case common.NodeTypeStr:
 			node = NewRGAStringNode(opID)
+		case common.NodeTypeRoot:
+			node = NewRootNode(opID)
 		default:
 			return common.ErrInvalidNodeType{Type: string(op.NodeType)}
 		}
@@ -441,6 +401,11 @@ func (d *Document) applyOperation(opType common.OperationType, op *patchOperatio
 		}
 
 		switch node := target.(type) {
+		case *RootNode:
+			// Update the root node's value
+			valueNode := NewConstantNode(opID, op.Value)
+			node.NodeValue = valueNode
+			d.AddNode(valueNode)
 		case *LWWValueNode:
 			// Update the value
 			valueNode := NewConstantNode(opID, op.Value)

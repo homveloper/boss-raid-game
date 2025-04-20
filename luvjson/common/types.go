@@ -11,6 +11,12 @@ import (
 // It is implemented as a UUID v7 which provides time-ordered values.
 type SessionID uuid.UUID
 
+// NilSessionID is the zero value for SessionID.
+var NilSessionID SessionID
+
+// RootID is the fixed LogicalTimestamp used for the root node.
+var RootID = LogicalTimestamp{SID: NilSessionID, Counter: 0}
+
 // NewSessionID creates a new SessionID using UUID v7.
 // It panics if the UUID cannot be created.
 func NewSessionID() SessionID {
@@ -19,6 +25,33 @@ func NewSessionID() SessionID {
 		panic(fmt.Sprintf("failed to create SessionID: %v", err))
 	}
 	return SessionID(uuid)
+}
+
+// SessionIDFromUint64 creates a SessionID from a uint64 value.
+// This is used when parsing patch operations where the session ID is represented as a number.
+func SessionIDFromUint64(id uint64) SessionID {
+	// Convert the uint64 to a UUID
+	// For simplicity, we'll just use the lower 16 bytes of the uint64
+	uuidBytes := make([]byte, 16)
+
+	// Put the uint64 in the first 8 bytes
+	uuidBytes[0] = byte(id >> 56)
+	uuidBytes[1] = byte(id >> 48)
+	uuidBytes[2] = byte(id >> 40)
+	uuidBytes[3] = byte(id >> 32)
+	uuidBytes[4] = byte(id >> 24)
+	uuidBytes[5] = byte(id >> 16)
+	uuidBytes[6] = byte(id >> 8)
+	uuidBytes[7] = byte(id)
+
+	// Create a UUID from the bytes
+	uuidVal, err := uuid.FromBytes(uuidBytes)
+	if err != nil {
+		// If there's an error, return NilSessionID
+		return NilSessionID
+	}
+
+	return SessionID(uuidVal)
 }
 
 // String returns the string representation of the SessionID.
@@ -34,7 +67,8 @@ func (s SessionID) String() string {
 //	 1 if s > other
 func (s SessionID) Compare(other SessionID) int {
 	// Compare UUIDs lexicographically
-	for i := 0; i < 16; i++ {
+	max := len(uuid.UUID(s))
+	for i := 0; i < max; i++ {
 		if uuid.UUID(s)[i] < uuid.UUID(other)[i] {
 			return -1
 		}
@@ -47,9 +81,8 @@ func (s SessionID) Compare(other SessionID) int {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (s SessionID) MarshalJSON() ([]byte, error) {
-	// Convert UUID to byte array
-	bytes := [16]byte(uuid.UUID(s))
-	return json.Marshal(bytes[:])
+	type alias SessionID
+	return json.Marshal(alias(s))
 }
 
 // UnmarshalText implements the encoding.TextUnmarshaler interface.
@@ -70,43 +103,8 @@ func (s SessionID) MarshalText() ([]byte, error) {
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (s *SessionID) UnmarshalJSON(data []byte) error {
-	// Only unmarshal as byte array
-	var bytes []byte
-	if err := json.Unmarshal(data, &bytes); err != nil {
-		// If it's not a byte array, it might be a string
-		// In that case, let UnmarshalText handle it
-		var str string
-		if err := json.Unmarshal(data, &str); err != nil {
-			return fmt.Errorf("sid must be a byte array: %w", err)
-		}
-		return s.UnmarshalText([]byte(str))
-	}
-
-	// Check if we have the correct length
-	if len(bytes) != 16 {
-		return fmt.Errorf("invalid UUID length: %d", len(bytes))
-	}
-
-	// Check if all bytes are zero (Zero UUID)
-	allZero := true
-	for _, b := range bytes {
-		if b != 0 {
-			allZero = false
-			break
-		}
-	}
-
-	if allZero {
-		// This is a Zero UUID
-		*s = SessionID{}
-		return nil
-	}
-
-	// Regular UUID
-	var uuidBytes [16]byte
-	copy(uuidBytes[:], bytes)
-	*s = SessionID(uuid.UUID(uuidBytes))
-	return nil
+	type alias SessionID
+	return json.Unmarshal(data, (*alias)(s))
 }
 
 // LogicalTimestamp represents a globally unique identifier that can be partially ordered.
@@ -163,13 +161,8 @@ func (t LogicalTimestamp) String() string {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (t LogicalTimestamp) MarshalJSON() ([]byte, error) {
-	// Convert UUID to byte array
-	bytes := [16]byte(uuid.UUID(t.SID))
-
-	return json.Marshal(map[string]interface{}{
-		"sid": bytes[:],
-		"cnt": t.Counter,
-	})
+	type alias LogicalTimestamp
+	return json.Marshal(alias(t))
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -246,6 +239,8 @@ const (
 	NodeTypeBin NodeType = "bin"
 	// NodeTypeArr represents an RGA-Array.
 	NodeTypeArr NodeType = "arr"
+	// NodeTypeRoot represents the root node of a document.
+	NodeTypeRoot NodeType = "root"
 )
 
 // OperationType represents the type of a CRDT patch operation.

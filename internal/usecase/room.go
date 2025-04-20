@@ -3,7 +3,6 @@ package usecase
 import (
 	"fmt"
 	"tictactoe/internal/domain"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -24,33 +23,39 @@ func NewRoomUseCase(roomRepo domain.RoomRepository, gameUC domain.GameUseCase) *
 
 // Create creates a new room
 func (uc *RoomUseCase) Create(name string) (*domain.Room, error) {
+	// 디버깅 로그 추가
+	fmt.Printf("Creating room with name: %s\n", name)
+
 	// Generate a unique ID for the room
 	roomID := uuid.New().String()
+	fmt.Printf("Generated room ID: %s\n", roomID)
 
 	// Create a new game for the room
+	fmt.Printf("Creating game for room ID: %s\n", roomID)
 	game, err := uc.gameUC.Create(roomID)
 	if err != nil {
+		fmt.Printf("Error creating game: %v\n", err)
 		return nil, fmt.Errorf("failed to create game: %w", err)
 	}
 
 	// Get the game ID
 	gameID := game.ID
+	fmt.Printf("Game created with ID: %s\n", gameID)
 
-	// Create a new room
-	room := &domain.Room{
-		ID:        roomID,
-		Name:      name,
-		GameID:    gameID,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
+	// Create a new room using NewRoom function
+	room := domain.NewRoom(roomID, name)
+	room.SetGameID(gameID)
+	fmt.Printf("Room object created: %+v\n", room)
 
 	// Save the room to the repository
+	fmt.Printf("Saving room to repository\n")
 	err = uc.roomRepo.Create(room)
 	if err != nil {
+		fmt.Printf("Error saving room: %v\n", err)
 		return nil, fmt.Errorf("failed to create room: %w", err)
 	}
 
+	fmt.Printf("Room saved successfully\n")
 	return room, nil
 }
 
@@ -93,6 +98,18 @@ func (uc *RoomUseCase) Join(roomID string, playerID string, playerName string) (
 	game, err := uc.gameUC.Join(room.GameID, playerID, playerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to join game: %w", err)
+	}
+
+	// Increment the player count in the room
+	err = room.IncrementPlayerCount()
+	if err != nil {
+		return nil, fmt.Errorf("failed to increment player count: %w", err)
+	}
+
+	// Update the room in the repository
+	err = uc.roomRepo.Update(room)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update room: %w", err)
 	}
 
 	return game, nil

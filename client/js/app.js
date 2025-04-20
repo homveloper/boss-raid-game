@@ -17,6 +17,66 @@ const state = {
     bossActionSpeed: 3000 // Default boss action request interval in milliseconds
 };
 
+// Game client object for external access
+const gameClient = {
+    get gameId() { return state.gameId; },
+    get playerId() { return state.playerId; },
+    get playerName() { return state.playerName; },
+    get game() { return state.game; },
+
+    // Initialize client with random user ID
+    initialize() {
+        // Generate random user ID if not already set
+        if (!state.playerId) {
+            state.playerId = 'user_' + Math.random().toString(36).substring(2, 15);
+            state.playerName = 'Guest_' + Math.random().toString(36).substring(2, 7);
+            console.log('Generated random user ID:', state.playerId);
+            console.log('Generated random user name:', state.playerName);
+
+            // Create a temporary game ID for crafting system
+            if (!state.gameId) {
+                state.gameId = 'game_' + Math.random().toString(36).substring(2, 15);
+                console.log('Generated temporary game ID:', state.gameId);
+            }
+
+            // Save to localStorage for persistence
+            localStorage.setItem('playerId', state.playerId);
+            localStorage.setItem('playerName', state.playerName);
+            localStorage.setItem('gameId', state.gameId);
+
+            // Show notification
+            this.showNotification(`환영합니다! 임시 사용자 ID가 생성되었습니다: ${state.playerName}`);
+        }
+
+        return {
+            playerId: state.playerId,
+            playerName: state.playerName,
+            gameId: state.gameId
+        };
+    },
+
+    // Get player name by ID
+    getPlayerName(playerId) {
+        if (playerId === state.playerId) {
+            return state.playerName;
+        }
+
+        if (state.game && state.game.players && state.game.players[playerId]) {
+            return state.game.players[playerId].name;
+        }
+        return playerId; // Return ID if name not found
+    },
+
+    // Show notification
+    showNotification(message, type = 'info') {
+        addEventToLog('system', message);
+        // You could also implement a more sophisticated notification system here
+    }
+};
+
+// Expose gameClient globally
+window.gameClient = gameClient;
+
 // Update game status
 function updateGameStatus(status, message = '') {
     state.gameStatus = status;
@@ -428,6 +488,10 @@ function stopBossActionTimer() {
 function handleEvent(event) {
     console.log('Received event:', event);
 
+    // Dispatch custom event for other components to listen to
+    const customEvent = new CustomEvent('game_event', { detail: event });
+    document.dispatchEvent(customEvent);
+
     switch (event.type) {
         case 'game_state':
         case 'game_update':
@@ -473,6 +537,28 @@ function handleEvent(event) {
         case 'item_equip':
             updateGameState(event.payload.game);
             addEventToLog('item_equip', event.payload.description);
+            break;
+        // 제작 시스템 관련 이벤트
+        case 'crafting_started':
+            updateGameState(event.payload.game);
+            addEventToLog('crafting', event.payload.description);
+            break;
+        case 'crafting_helped':
+            updateGameState(event.payload.game);
+            addEventToLog('crafting', event.payload.description);
+            break;
+        case 'crafting_completed':
+            updateGameState(event.payload.game);
+            addEventToLog('crafting', event.payload.description);
+            break;
+        case 'crafting_update':
+            // 실시간 제작 상태 업데이트 이벤트
+            addEventToLog('crafting', event.payload.description);
+            // 커스텀 이벤트 발생시켜 제작 시스템에 알림
+            const craftingUpdateEvent = new CustomEvent('crafting_update', {
+                detail: event.payload.data
+            });
+            document.dispatchEvent(craftingUpdateEvent);
             break;
     }
 }
@@ -652,6 +738,34 @@ function addEventToLog(eventType, description) {
     eventElement.className = `event-${eventType}`;
     eventElement.textContent = description;
 
+    // 이벤트 타입에 따른 스타일 적용
+    switch (eventType) {
+        case 'player_join':
+        case 'player_ready':
+            eventElement.style.color = '#4a69bd';
+            break;
+        case 'player_attack':
+            eventElement.style.color = '#e55039';
+            break;
+        case 'boss_attack':
+            eventElement.style.color = '#b71540';
+            break;
+        case 'player_defeated':
+            eventElement.style.color = '#b71540';
+            break;
+        case 'game_start':
+        case 'game_end':
+            eventElement.style.fontWeight = 'bold';
+            break;
+        case 'crafting':
+            eventElement.style.color = '#009432';
+            break;
+        case 'system':
+            eventElement.style.color = '#7f8fa6';
+            eventElement.style.fontStyle = 'italic';
+            break;
+    }
+
     eventLog.appendChild(eventElement);
     eventLog.scrollTop = eventLog.scrollHeight;
 }
@@ -777,6 +891,22 @@ function stopRoomsRefresh() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize client with random user ID
+    const userInfo = gameClient.initialize();
+    console.log('Client initialized with:', userInfo);
+
+    // Try to load from localStorage if not already loaded
+    if (!state.playerId && localStorage.getItem('playerId')) {
+        state.playerId = localStorage.getItem('playerId');
+        state.playerName = localStorage.getItem('playerName') || 'Guest';
+        state.gameId = localStorage.getItem('gameId');
+        console.log('Loaded user data from localStorage:', {
+            playerId: state.playerId,
+            playerName: state.playerName,
+            gameId: state.gameId
+        });
+    }
+
     // Initialize the game status
     updateGameStatus('disconnected', 'Welcome to Boss Raid!');
 

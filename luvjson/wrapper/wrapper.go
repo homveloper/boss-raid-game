@@ -34,8 +34,13 @@ func NewCRDTDocument(sessionID common.SessionID) *CRDTDocument {
 	rootNode := doc.Root()
 
 	// Set the root value to the new object
-	rootLWW := rootNode.(*crdt.LWWValueNode)
-	rootLWW.SetValue(rootID, rootObj)
+	if rootLWW, ok := rootNode.(*crdt.RootNode); ok {
+		rootLWW.NodeValue = rootObj
+	} else if rootLWW, ok := rootNode.(*crdt.LWWValueNode); ok {
+		rootLWW.SetValue(rootID, rootObj)
+	} else {
+		panic(fmt.Sprintf("unexpected root node type: %T", rootNode))
+	}
 
 	// Initialize the document with an empty map
 	cd := &CRDTDocument{
@@ -444,8 +449,13 @@ func (cd *CRDTDocument) InitRootNode(rootID common.LogicalTimestamp) error {
 	rootNode := cd.doc.Root()
 
 	// Set the root value to the new object
-	rootLWW := rootNode.(*crdt.LWWValueNode)
-	rootLWW.SetValue(rootID, rootObj)
+	if rootLWW, ok := rootNode.(*crdt.RootNode); ok {
+		rootLWW.NodeValue = rootObj
+	} else if rootLWW, ok := rootNode.(*crdt.LWWValueNode); ok {
+		rootLWW.SetValue(rootID, rootObj)
+	} else {
+		return fmt.Errorf("unexpected root node type: %T", rootNode)
+	}
 
 	return nil
 }

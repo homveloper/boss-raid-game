@@ -1,0 +1,366 @@
+/* 협동 아이템 제작 시스템 스타일 */
+
+/* 제작 섹션 */
+.crafting-section {
+    width: 100%;
+    padding: 30px 20px;
+    background-color: #f0f4f8;
+    margin-top: 30px;
+}
+
+/* 제작 패널 */
+.crafting-panel {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+/* 제작 시스템 컨테이너 */
+.crafting-system {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    padding: 25px;
+    background-color: #f5f5f5;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 패널 제목 */
+.crafting-panel > h3 {
+    font-size: 1.8rem;
+    padding: 20px;
+    margin: 0;
+    background-color: #4a69bd;
+    color: white;
+    text-align: center;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* 제작 섹션 제목 */
+.crafting-title {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+    color: #333;
+    border-bottom: 2px solid #ddd;
+    padding-bottom: 10px;
+    font-weight: 600;
+}
+
+/* 제작 가능한 아이템 컨테이너 */
+.craftable-items-container {
+    margin-bottom: 20px;
+}
+
+/* 제작 가능한 아이템 그리드 */
+.craftable-items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+/* 제작 가능한 아이템 카드 */
+.craftable-item {
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.craftable-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 아이템 헤더 */
+.item-header {
+    background-color: #4a69bd;
+    color: white;
+    padding: 10px 15px;
+}
+
+.item-header h4 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+/* 아이템 본문 */
+.item-body {
+    padding: 20px;
+    flex-grow: 1;
+}
+
+.item-description {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #555;
+}
+
+.item-time, .item-materials {
+    font-size: 0.9rem;
+    color: #777;
+    margin: 5px 0;
+}
+
+/* 아이템 푸터 */
+.item-footer {
+    padding: 10px 15px;
+    background-color: #f9f9f9;
+    border-top: 1px solid #eee;
+    text-align: right;
+}
+
+/* 제작 시작 버튼 */
+.start-craft-btn {
+    background-color: #4a69bd;
+    color: white;
+    border: none;
+    border-radius: 30px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    width: 100%;
+}
+
+.start-craft-btn:hover {
+    background-color: #3c5aa6;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 제작 중인 아이템 컨테이너 */
+.crafting-items-container {
+    margin-top: 10px;
+}
+
+/* 제작 중인 아이템 목록 */
+.crafting-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* 제작 중인 아이템 카드 */
+.crafting-item {
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    display: flex;
+    flex-direction: column;
+}
+
+.crafting-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 내 아이템 강조 */
+.crafting-item.my-item {
+    border: 2px solid #4a69bd;
+}
+
+/* 완료된 아이템 */
+.crafting-item.completed .crafting-item-header {
+    background-color: #27ae60;
+}
+
+/* 제작 중인 아이템 헤더 */
+.crafting-item-header {
+    background-color: #4a69bd;
+    color: white;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.crafting-item-header h4 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.crafter {
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+/* 제작 중인 아이템 본문 */
+.crafting-item-body {
+    padding: 20px;
+    flex-grow: 1;
+}
+
+/* 진행 상태 바 */
+.progress-container {
+    margin-bottom: 20px;
+}
+
+.progress-bar {
+    height: 12px;
+    background-color: #eee;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.progress {
+    height: 100%;
+    background-color: #4a69bd;
+    transition: width 0.3s ease;
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+    background-size: 20px 20px;
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    from { background-position: 0 0; }
+    to { background-position: 20px 0; }
+}
+
+.remaining-time {
+    font-size: 1rem;
+    color: #555;
+    font-weight: bold;
+}
+
+/* 시간 정보 */
+.time-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+    color: #555;
+    margin-bottom: 20px;
+    background-color: #f9f9f9;
+    padding: 10px 15px;
+    border-radius: 6px;
+}
+
+/* 도움 준 플레이어 목록 */
+.helpers-container {
+    margin-top: 15px;
+    background-color: #f5f5f5;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.helpers-container h5 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+    color: #444;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+}
+
+.helpers-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.helper {
+    background-color: #e8f0fe;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    color: #4a69bd;
+    border: 1px solid #d0e1fd;
+    font-weight: 500;
+}
+
+.no-helpers {
+    font-style: italic;
+    color: #999;
+    font-size: 0.9rem;
+    padding: 5px 0;
+}
+
+/* 제작 중인 아이템 푸터 */
+.crafting-item-footer {
+    padding: 10px 15px;
+    background-color: #f9f9f9;
+    border-top: 1px solid #eee;
+    text-align: right;
+}
+
+/* 도움 주기 버튼 */
+.help-craft-btn {
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 30px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    width: 100%;
+}
+
+.help-craft-btn:hover {
+    background-color: #219653;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 빈 메시지 */
+.empty-message {
+    text-align: center;
+    color: #888;
+    font-style: italic;
+    padding: 30px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    margin: 10px 0;
+    border: 1px dashed #ddd;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 1200px) {
+    .crafting-panel {
+        width: 95%;
+    }
+
+    .craftable-items-grid {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .crafting-panel {
+        width: 100%;
+        padding: 10px;
+    }
+
+    .crafting-system {
+        padding: 15px;
+        gap: 20px;
+    }
+
+    .craftable-items-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .item-body, .crafting-item-body {
+        padding: 15px;
+    }
+
+    .helpers-container {
+        padding: 10px;
+    }
+}

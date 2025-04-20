@@ -46,12 +46,20 @@ func NewRouter(gameUC domain.GameUseCase) *Router {
 
 // HandleEvents handles SSE connections
 func (r *Router) HandleEvents(w http.ResponseWriter, req *http.Request) {
+	// 패닉 복구
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("SSE Panic recovered: %v\n", err)
+		}
+	}()
 	// Set headers for SSE
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
+	// 연결 성공 응답 전송
+	fmt.Fprintf(w, "data: {\"type\":\"connected\",\"payload\":{\"message\":\"Connected to event stream\"}}\n\n")
 	// Get flusher
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -63,6 +71,7 @@ func (r *Router) HandleEvents(w http.ResponseWriter, req *http.Request) {
 	gameID := req.URL.Query().Get("gameId")
 	playerID := req.URL.Query().Get("playerId")
 
+	// 게임 ID와 플레이어 ID가 필요함
 	if gameID == "" || playerID == "" {
 		http.Error(w, "gameId and playerId are required", http.StatusBadRequest)
 		return
@@ -81,20 +90,26 @@ func (r *Router) HandleEvents(w http.ResponseWriter, req *http.Request) {
 	r.clients[playerID] = client
 	r.mu.Unlock()
 
-	// Send initial game state
+	// 연결 성공 메시지 전송
+	fmt.Fprintf(w, "data: {\"type\":\"connected\",\"payload\":{\"message\":\"Connected to event stream\",\"playerId\":\"%s\",\"gameId\":\"%s\"}}\n\n", playerID, gameID)
+	flusher.Flush()
+
+	// 게임 상태 전송
 	game, err := r.gameUC.Get(gameID)
 	if err == nil {
 		r.sendEvent(client, "game_state", game)
 	}
 
-	// Keep connection open until client disconnects
+	// 연결 유지
 	notify := req.Context().Done()
 	<-notify
 
-	// Unregister client
+	// 연결이 끊어지면 클라이언트 제거
 	r.mu.Lock()
 	delete(r.clients, playerID)
 	r.mu.Unlock()
+
+	fmt.Printf("Client %s disconnected\n", playerID)
 }
 
 // PublishGameEvent publishes an event to all clients in a game
@@ -136,6 +151,13 @@ func (r *Router) PublishRoomEvent(eventType, description string, data interface{
 
 // sendEvent sends an event to a client
 func (r *Router) sendEvent(client *Client, eventType string, payload interface{}) {
+	// 패닉 복구
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("SSE sendEvent Panic recovered: %v\n", err)
+		}
+	}()
+
 	event := Event{
 		Type:    eventType,
 		Payload: payload,
@@ -143,11 +165,29 @@ func (r *Router) sendEvent(client *Client, eventType string, payload interface{}
 
 	data, err := json.Marshal(event)
 	if err != nil {
+		fmt.Printf("Error marshaling event: %v\n", err)
 		return
 	}
 
-	fmt.Fprintf(client.Writer, "data: %s\n\n", data)
-	client.Flusher.Flush()
+	// 안전하게 이벤트 전송 시도
+	try := func() (success bool) {
+		defer func() {
+			if err := recover(); err != nil {
+				success = false
+			}
+		}()
+
+		fmt.Fprintf(client.Writer, "data: %s\n\n", data)
+		client.Flusher.Flush()
+		return true
+	}
+
+	if !try() {
+		// 전송 실패 시 클라이언트 제거
+		r.mu.Lock()
+		delete(r.clients, client.ID)
+		r.mu.Unlock()
+	}
 }
 
 // broadcastEvents broadcasts events to all clients

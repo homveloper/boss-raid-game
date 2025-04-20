@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -9,7 +8,6 @@ import (
 
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
-	"tictactoe/luvjson/crdtpatch"
 	"tictactoe/luvjson/tracker"
 )
 
