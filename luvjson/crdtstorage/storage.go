@@ -21,23 +21,29 @@ import (
 // DefaultStorageOptions는 기본 저장소 옵션을 반환합니다.
 func DefaultStorageOptions() *StorageOptions {
 	return &StorageOptions{
-		PubSubType:       "memory",
-		RedisAddr:        "localhost:6379",
-		KeyPrefix:        "luvjson",
-		SyncInterval:     time.Minute,
-		AutoSave:         true,
-		AutoSaveInterval: time.Minute * 5,
-		PersistenceType:  "memory",
-		PersistencePath:  "",
+		PubSubType:                "memory",
+		RedisAddr:                 "localhost:6379",
+		KeyPrefix:                 "luvjson",
+		SyncInterval:              time.Minute,
+		AutoSave:                  true,
+		AutoSaveInterval:          time.Minute * 5,
+		PersistenceType:           "memory",
+		PersistencePath:           "",
+		EnableDistributedLock:     false,
+		DistributedLockTimeout:    time.Minute,
+		EnableTransactionTracking: false,
 	}
 }
 
 // DefaultDocumentOptions는 기본 문서 옵션을 반환합니다.
 func DefaultDocumentOptions() *DocumentOptions {
 	return &DocumentOptions{
-		AutoSave:         true,
-		AutoSaveInterval: time.Minute * 5,
-		Metadata:         make(map[string]interface{}),
+		AutoSave:               true,
+		AutoSaveInterval:       time.Minute * 5,
+		Metadata:               make(map[string]interface{}),
+		OptimisticConcurrency:  false,
+		MaxTransactionRetries:  3,
+		RequireDistributedLock: false,
 	}
 }
 
@@ -66,10 +72,23 @@ type storageImpl struct {
 
 	// cancel은 컨텍스트 취소 함수입니다.
 	cancel context.CancelFunc
+
+	// lockManager는 분산 락 관리자입니다.
+	// 분산 환경에서 트랜잭션을 보장하는 데 사용됩니다.
+	lockManager DistributedLockManager
+
+	// transactionManager는 트랜잭션 관리자입니다.
+	// 분산 환경에서 트랜잭션을 추적하고 관리하는 데 사용됩니다.
+	transactionManager TransactionManager
 }
 
 // NewStorage는 새 저장소를 생성합니다.
 func NewStorage(ctx context.Context, options *StorageOptions) (Storage, error) {
+	return NewStorageWithCustomPersistence(ctx, options, nil)
+}
+
+// NewStorageWithCustomPersistence는 사용자 정의 영구 저장소를 사용하여 새 저장소를 생성합니다.
+func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOptions, customPersistence PersistenceProvider) (Storage, error) {
 	if options == nil {
 		options = DefaultStorageOptions()
 	}
@@ -94,13 +113,50 @@ func NewStorage(ctx context.Context, options *StorageOptions) (Storage, error) {
 	storage.pubsub = pubsub
 
 	// 영구 저장소 생성
-	persistence, err := createPersistenceProvider(storageCtx, options)
+	persistence, err := createPersistenceProvider(storageCtx, options, customPersistence)
 	if err != nil {
 		cancel()
 		pubsub.Close()
 		return nil, fmt.Errorf("failed to create persistence provider: %w", err)
 	}
 	storage.persistence = persistence
+
+	// Redis 클라이언트 저장 (락 관리자와 트랜잭션 관리자에서 사용)
+	if options.PubSubType == "redis" || options.PersistenceType == "redis" {
+		// Redis 클라이언트 생성
+		redisClient := redis.NewClient(&redis.Options{
+			Addr: options.RedisAddr,
+		})
+
+		// Redis 연결 테스트
+		if err := redisClient.Ping(storageCtx).Err(); err != nil {
+			cancel()
+			pubsub.Close()
+			persistence.Close()
+			return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+		}
+
+		storage.redisClient = redisClient
+
+		// 분산 락 관리자 생성 (필요한 경우)
+		if options.EnableDistributedLock {
+			storage.lockManager = createLockManager(redisClient, options)
+		}
+
+		// 트랜잭션 관리자 생성 (필요한 경우)
+		if options.EnableTransactionTracking {
+			storage.transactionManager = createTransactionManager(redisClient, storage.lockManager, options)
+		}
+	} else {
+		// 분산 락이나 트랜잭션 추적이 필요한 경우 더미 구현체 사용
+		if options.EnableDistributedLock {
+			storage.lockManager = NewNoOpDistributedLockManager()
+		}
+
+		if options.EnableTransactionTracking {
+			storage.transactionManager = NewNoOpTransactionManager()
+		}
+	}
 
 	return storage, nil
 }
@@ -131,7 +187,13 @@ func createPubSub(ctx context.Context, options *StorageOptions) (crdtpubsub.PubS
 }
 
 // createPersistenceProvider는 영구 저장소 인스턴스를 생성합니다.
-func createPersistenceProvider(ctx context.Context, options *StorageOptions) (PersistenceProvider, error) {
+func createPersistenceProvider(ctx context.Context, options *StorageOptions, customPersistence PersistenceProvider) (PersistenceProvider, error) {
+	// 사용자 정의 영구 저장소가 있는 경우 사용
+	if customPersistence != nil {
+		return customPersistence, nil
+	}
+
+	// 기본 영구 저장소 생성
 	switch options.PersistenceType {
 	case "memory":
 		return NewMemoryPersistence(), nil
@@ -149,6 +211,8 @@ func createPersistenceProvider(ctx context.Context, options *StorageOptions) (Pe
 		}
 
 		return NewRedisPersistence(redisClient, options.KeyPrefix), nil
+	case "custom":
+		return nil, fmt.Errorf("custom persistence type requires a custom persistence provider")
 	default:
 		return nil, fmt.Errorf("unsupported persistence type: %s", options.PersistenceType)
 	}
@@ -189,6 +253,10 @@ func (s *storageImpl) CreateDocument(ctx context.Context, documentID string) (*D
 		autoSave:          s.options.AutoSave,
 		autoSaveInterval:  s.options.AutoSaveInterval,
 		onChangeCallbacks: make([]func(*Document, *crdtpatch.Patch), 0),
+		// 뮤텍스 초기화는 기본값으로 자동 설정됨
+		lockManager:        s.lockManager,
+		transactionManager: s.transactionManager,
+		Version:            1,
 	}
 
 	// 동기화 매니저 설정
@@ -236,7 +304,7 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 	}
 
 	// 영구 저장소에서 문서 데이터 로드
-	data, err := s.persistence.LoadDocument(ctx, documentID)
+	data, err := s.persistence.LoadDocumentByID(ctx, documentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load document: %w", err)
 	}
@@ -266,6 +334,10 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 		autoSave:          s.options.AutoSave,
 		autoSaveInterval:  s.options.AutoSaveInterval,
 		onChangeCallbacks: make([]func(*Document, *crdtpatch.Patch), 0),
+		// 뮤텍스 초기화는 기본값으로 자동 설정됨
+		lockManager:        s.lockManager,
+		transactionManager: s.transactionManager,
+		Version:            1,
 	}
 
 	// 문서 데이터 역직렬화
@@ -308,7 +380,7 @@ func (s *storageImpl) DeleteDocument(ctx context.Context, documentID string) err
 	}
 
 	// 영구 저장소에서 문서 삭제
-	return s.persistence.DeleteDocument(ctx, documentID)
+	return s.persistence.DeleteDocumentByID(ctx, documentID)
 }
 
 // SyncDocument는 특정 문서를 동기화합니다.
@@ -444,6 +516,59 @@ func (s *storageImpl) setupSyncManager(doc *Document) error {
 	doc.SyncManager = syncManager
 
 	return nil
+}
+
+// createLockManager는 분산 락 관리자를 생성합니다.
+func createLockManager(redisClient *redis.Client, options *StorageOptions) DistributedLockManager {
+	// Redis 클라이언트를 RedisClient 인터페이스로 래핑
+	client := &redisClientWrapper{redisClient}
+
+	// Redis 분산 락 관리자 생성
+	return NewRedisDistributedLockManager(client)
+}
+
+// createTransactionManager는 트랜잭션 관리자를 생성합니다.
+func createTransactionManager(redisClient *redis.Client, lockManager DistributedLockManager, options *StorageOptions) TransactionManager {
+	// Redis 클라이언트를 RedisClient 인터페이스로 래핑
+	client := &redisClientWrapper{redisClient}
+
+	// Redis 트랜잭션 관리자 생성
+	return NewRedisTransactionManager(client, lockManager, options.KeyPrefix)
+}
+
+// redisClientWrapper는 Redis 클라이언트를 RedisClient 인터페이스로 래핑합니다.
+type redisClientWrapper struct {
+	client *redis.Client
+}
+
+// SetNX는 키가 존재하지 않는 경우에만 값을 설정합니다.
+func (w *redisClientWrapper) SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error) {
+	return w.client.SetNX(ctx, key, value, expiration).Result()
+}
+
+// Eval은 Lua 스크립트를 실행합니다.
+func (w *redisClientWrapper) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	return w.client.Eval(ctx, script, keys, args...).Result()
+}
+
+// Del은 키를 삭제합니다.
+func (w *redisClientWrapper) Del(ctx context.Context, keys ...string) (int64, error) {
+	return w.client.Del(ctx, keys...).Result()
+}
+
+// Expire는 키의 만료 시간을 설정합니다.
+func (w *redisClientWrapper) Expire(ctx context.Context, key string, expiration time.Duration) (bool, error) {
+	return w.client.Expire(ctx, key, expiration).Result()
+}
+
+// Get은 키의 값을 가져옵니다.
+func (w *redisClientWrapper) Get(ctx context.Context, key string) (string, error) {
+	return w.client.Get(ctx, key).Result()
+}
+
+// Set은 키에 값을 설정합니다.
+func (w *redisClientWrapper) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
+	return w.client.Set(ctx, key, value, expiration).Err()
 }
 
 // dummyPeerDiscovery는 더미 피어 발견 구현입니다.

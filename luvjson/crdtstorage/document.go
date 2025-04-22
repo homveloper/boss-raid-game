@@ -114,43 +114,6 @@ func (d *Document) startAutoSave() {
 	}
 }
 
-// Edit는 문서를 편집합니다.
-func (d *Document) Edit(ctx context.Context, editFunc EditFunc) *EditResult {
-	result := &EditResult{
-		Success:  false,
-		Document: d,
-	}
-
-	// 편집 함수 실행
-	if err := editFunc(d.Model.GetApi()); err != nil {
-		result.Error = fmt.Errorf("edit function failed: %w", err)
-		return result
-	}
-
-	// 변경사항 플러시
-	patch := d.Model.GetApi().Flush()
-
-	// 패치 적용 및 브로드캐스트
-	if err := d.SyncManager.ApplyPatch(ctx, patch); err != nil {
-		result.Error = fmt.Errorf("failed to apply patch: %w", err)
-		return result
-	}
-
-	// 마지막 수정 시간 업데이트
-	d.LastModified = time.Now()
-
-	// 변경 콜백 호출
-	for _, callback := range d.onChangeCallbacks {
-		callback(d, patch)
-	}
-
-	// 결과 설정
-	result.Success = true
-	result.Patch = patch
-
-	return result
-}
-
 // OnChange는 문서 변경 시 호출될 콜백 함수를 등록합니다.
 func (d *Document) OnChange(callback func(*Document, *crdtpatch.Patch)) {
 	d.onChangeCallbacks = append(d.onChangeCallbacks, callback)

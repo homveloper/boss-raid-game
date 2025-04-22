@@ -2,6 +2,7 @@ package crdtstorage
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"tictactoe/luvjson/api"
@@ -76,6 +77,26 @@ type Document struct {
 
 	// onChangeCallbacks는 문서 변경 시 호출되는 콜백 함수 목록입니다.
 	onChangeCallbacks []func(*Document, *crdtpatch.Patch)
+
+	// mutex는 문서 편집 작업에 대한 동시 접근을 보호합니다.
+	// 이를 통해 트랜잭션 일관성을 보장합니다.
+	mutex sync.Mutex
+
+	// lockManager는 문서에 대한 분산 락을 관리합니다.
+	// 분산 환경에서 트랜잭션을 보장하는 데 사용됩니다.
+	lockManager DistributedLockManager
+
+	// transactionManager는 문서에 대한 트랜잭션을 관리합니다.
+	// 분산 환경에서 트랜잭션을 추적하고 관리하는 데 사용됩니다.
+	transactionManager TransactionManager
+
+	// Version은 문서의 버전 번호입니다.
+	// 낙관적 동시성 제어에 사용됩니다.
+	Version int64
+
+	// activeTransaction은 현재 진행 중인 트랜잭션 ID입니다.
+	// 하나의 문서에 대해 한 번에 하나의 트랜잭션만 허용됩니다.
+	activeTransaction string
 }
 
 // StorageOptions는 저장소 옵션을 나타냅니다.
@@ -103,6 +124,18 @@ type StorageOptions struct {
 
 	// PersistencePath는 영구 저장소 경로입니다.
 	PersistencePath string
+
+	// EnableDistributedLock은 분산 락 활성화 여부입니다.
+	// 분산 환경에서 트랜잭션을 보장하는 데 사용됩니다.
+	EnableDistributedLock bool
+
+	// DistributedLockTimeout은 분산 락 타임아웃입니다.
+	// 분산 락을 활성화한 경우에만 사용됩니다.
+	DistributedLockTimeout time.Duration
+
+	// EnableTransactionTracking은 트랜잭션 추적 활성화 여부입니다.
+	// 분산 환경에서 트랜잭션을 추적하고 관리하는 데 사용됩니다.
+	EnableTransactionTracking bool
 }
 
 // DocumentOptions는 문서 옵션을 나타냅니다.
@@ -115,6 +148,18 @@ type DocumentOptions struct {
 
 	// Metadata는 문서 메타데이터입니다.
 	Metadata map[string]interface{}
+
+	// OptimisticConcurrency는 낙관적 동시성 제어 활성화 여부입니다.
+	// 분산 환경에서 충돌을 감지하고 해결하는 데 사용됩니다.
+	OptimisticConcurrency bool
+
+	// MaxTransactionRetries는 트랜잭션 재시도 횟수입니다.
+	// 낙관적 동시성 제어를 활성화한 경우에만 사용됩니다.
+	MaxTransactionRetries int
+
+	// RequireDistributedLock은 분산 락 요구 여부입니다.
+	// true인 경우 EditTransaction에서 분산 락을 사용합니다.
+	RequireDistributedLock bool
 }
 
 // PubSubFactory는 PubSub 인스턴스를 생성하는 팩토리 함수입니다.
@@ -166,21 +211,6 @@ type PersistenceProvider interface {
 
 	// Close는 영구 저장소를 닫습니다.
 	Close() error
-}
-
-// EditResult는 편집 작업의 결과를 나타냅니다.
-type EditResult struct {
-	// Success는 편집 작업 성공 여부입니다.
-	Success bool
-
-	// Error는 편집 작업 중 발생한 오류입니다.
-	Error error
-
-	// Patch는 편집 작업으로 생성된 패치입니다.
-	Patch *crdtpatch.Patch
-
-	// Document는 편집된 문서입니다.
-	Document *Document
 }
 
 // EditFunc는 문서 편집 함수 타입입니다.

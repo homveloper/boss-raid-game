@@ -67,8 +67,26 @@ func (p *MemoryPersistence) LoadDocument(ctx context.Context, key Key) ([]byte, 
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	// 키를 문자열로 변환
-	documentID := key.String()
+	// 키 처리
+	var documentID string
+	switch k := key.(type) {
+	case string:
+		documentID = k
+	case StringKey:
+		documentID = string(k)
+	case fmt.Stringer:
+		documentID = k.String()
+	case *CompositeKey:
+		if k != nil && len(k.Parts) > 0 {
+			documentID = fmt.Sprintf("%v", k.Parts[0])
+		}
+	case *PathKey:
+		if k != nil && len(k.Path) > 0 {
+			documentID = strings.Join(k.Path, "/")
+		}
+	default:
+		documentID = fmt.Sprintf("%v", key)
+	}
 
 	// 문서 가져오기
 	data, ok := p.documents[documentID]
@@ -132,8 +150,26 @@ func (p *MemoryPersistence) DeleteDocument(ctx context.Context, key Key) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// 키를 문자열로 변환
-	documentID := key.String()
+	// 키 처리
+	var documentID string
+	switch k := key.(type) {
+	case string:
+		documentID = k
+	case StringKey:
+		documentID = string(k)
+	case fmt.Stringer:
+		documentID = k.String()
+	case *CompositeKey:
+		if k != nil && len(k.Parts) > 0 {
+			documentID = fmt.Sprintf("%v", k.Parts[0])
+		}
+	case *PathKey:
+		if k != nil && len(k.Path) > 0 {
+			documentID = strings.Join(k.Path, "/")
+		}
+	default:
+		documentID = fmt.Sprintf("%v", key)
+	}
 
 	// 문서 삭제
 	delete(p.documents, documentID)
@@ -240,8 +276,26 @@ func (p *FilePersistence) LoadDocument(ctx context.Context, key Key) ([]byte, er
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	// 키를 문자열로 변환
-	documentID := key.String()
+	// 키 처리
+	var documentID string
+	switch k := key.(type) {
+	case string:
+		documentID = k
+	case StringKey:
+		documentID = string(k)
+	case fmt.Stringer:
+		documentID = k.String()
+	case *CompositeKey:
+		if k != nil && len(k.Parts) > 0 {
+			documentID = fmt.Sprintf("%v", k.Parts[0])
+		}
+	case *PathKey:
+		if k != nil && len(k.Path) > 0 {
+			documentID = strings.Join(k.Path, "/")
+		}
+	default:
+		documentID = fmt.Sprintf("%v", key)
+	}
 
 	// 파일 경로 가져오기
 	filePath := p.getFilePath(documentID)
@@ -326,8 +380,26 @@ func (p *FilePersistence) DeleteDocument(ctx context.Context, key Key) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// 키를 문자열로 변환
-	documentID := key.String()
+	// 키 처리
+	var documentID string
+	switch k := key.(type) {
+	case string:
+		documentID = k
+	case StringKey:
+		documentID = string(k)
+	case fmt.Stringer:
+		documentID = k.String()
+	case *CompositeKey:
+		if k != nil && len(k.Parts) > 0 {
+			documentID = fmt.Sprintf("%v", k.Parts[0])
+		}
+	case *PathKey:
+		if k != nil && len(k.Path) > 0 {
+			documentID = strings.Join(k.Path, "/")
+		}
+	default:
+		documentID = fmt.Sprintf("%v", key)
+	}
 
 	// 파일 경로 가져오기
 	filePath := p.getFilePath(documentID)
@@ -372,6 +444,9 @@ type RedisPersistence struct {
 	// keyPrefix는 Redis 키 접두사입니다.
 	keyPrefix string
 
+	// documentKeyFunc는 문서 키 생성 함수입니다.
+	documentKeyFunc DocumentKeyFunc
+
 	// mutex는 Redis 작업에 대한 동시 접근을 보호합니다.
 	mutex sync.RWMutex
 }
@@ -379,9 +454,15 @@ type RedisPersistence struct {
 // NewRedisPersistence는 새 Redis 영구 저장소를 생성합니다.
 func NewRedisPersistence(client *redis.Client, keyPrefix string) *RedisPersistence {
 	return &RedisPersistence{
-		client:    client,
-		keyPrefix: keyPrefix,
+		client:          client,
+		keyPrefix:       keyPrefix,
+		documentKeyFunc: PrefixedDocumentKeyFunc(keyPrefix),
 	}
+}
+
+// GetDocumentKeyFunc는 문서 키 생성 함수를 반환합니다.
+func (p *RedisPersistence) GetDocumentKeyFunc() DocumentKeyFunc {
+	return p.documentKeyFunc
 }
 
 // getDocumentKey는 문서 ID에 대한 Redis 키를 반환합니다.
@@ -470,9 +551,30 @@ func (p *RedisPersistence) SaveDocument(ctx context.Context, doc *Document) erro
 }
 
 // LoadDocument는 문서를 로드합니다.
-func (p *RedisPersistence) LoadDocument(ctx context.Context, documentID string) ([]byte, error) {
+func (p *RedisPersistence) LoadDocument(ctx context.Context, key Key) ([]byte, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
+
+	// 키 처리
+	var documentID string
+	switch k := key.(type) {
+	case string:
+		documentID = k
+	case StringKey:
+		documentID = string(k)
+	case fmt.Stringer:
+		documentID = k.String()
+	case *CompositeKey:
+		if k != nil && len(k.Parts) > 0 {
+			documentID = fmt.Sprintf("%v", k.Parts[0])
+		}
+	case *PathKey:
+		if k != nil && len(k.Path) > 0 {
+			documentID = strings.Join(k.Path, "/")
+		}
+	default:
+		documentID = fmt.Sprintf("%v", key)
+	}
 
 	// 문서 키 가져오기
 	docKey := p.getDocumentKey(documentID)
@@ -487,6 +589,15 @@ func (p *RedisPersistence) LoadDocument(ctx context.Context, documentID string) 
 	}
 
 	return data, nil
+}
+
+// LoadDocumentByID는 문서 ID로 문서를 로드합니다.
+func (p *RedisPersistence) LoadDocumentByID(ctx context.Context, documentID string) ([]byte, error) {
+	// 문서 ID로 키 생성
+	key := p.documentKeyFunc(documentID)
+
+	// 키로 문서 로드
+	return p.LoadDocument(ctx, key)
 }
 
 // ListDocuments는 모든 문서 목록을 반환합니다.
@@ -504,9 +615,30 @@ func (p *RedisPersistence) ListDocuments(ctx context.Context) ([]string, error) 
 }
 
 // DeleteDocument는 문서를 삭제합니다.
-func (p *RedisPersistence) DeleteDocument(ctx context.Context, documentID string) error {
+func (p *RedisPersistence) DeleteDocument(ctx context.Context, key Key) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+
+	// 키 처리
+	var documentID string
+	switch k := key.(type) {
+	case string:
+		documentID = k
+	case StringKey:
+		documentID = string(k)
+	case fmt.Stringer:
+		documentID = k.String()
+	case *CompositeKey:
+		if k != nil && len(k.Parts) > 0 {
+			documentID = fmt.Sprintf("%v", k.Parts[0])
+		}
+	case *PathKey:
+		if k != nil && len(k.Path) > 0 {
+			documentID = strings.Join(k.Path, "/")
+		}
+	default:
+		documentID = fmt.Sprintf("%v", key)
+	}
 
 	// 문서 키 가져오기
 	docKey := p.getDocumentKey(documentID)
@@ -521,7 +653,74 @@ func (p *RedisPersistence) DeleteDocument(ctx context.Context, documentID string
 		return fmt.Errorf("failed to remove document from list: %w", err)
 	}
 
+	// 메타데이터 삭제
+	metadataKey := fmt.Sprintf("%s:meta:%s", p.keyPrefix, documentID)
+	p.client.Del(ctx, metadataKey)
+
+	// 시간 인덱스 삭제
+	timeKey := fmt.Sprintf("%s:time:%s", p.keyPrefix, documentID)
+	p.client.Del(ctx, timeKey)
+
 	return nil
+}
+
+// DeleteDocumentByID는 문서 ID로 문서를 삭제합니다.
+func (p *RedisPersistence) DeleteDocumentByID(ctx context.Context, documentID string) error {
+	// 문서 ID로 키 생성
+	key := p.documentKeyFunc(documentID)
+
+	// 키로 문서 삭제
+	return p.DeleteDocument(ctx, key)
+}
+
+// QueryDocuments는 쿼리에 맞는 문서를 검색합니다.
+func (p *RedisPersistence) QueryDocuments(ctx context.Context, query interface{}) ([]string, error) {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	// 문자열 쿼리인 경우 문서 ID에 포함된 문서만 반환
+	if queryStr, ok := query.(string); ok && queryStr != "" {
+		// 모든 문서 목록 가져오기
+		allDocs, err := p.ListDocuments(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// 쿼리에 맞는 문서 필터링
+		var result []string
+		for _, id := range allDocs {
+			if strings.Contains(id, queryStr) {
+				result = append(result, id)
+			}
+		}
+		return result, nil
+	}
+
+	// 맵 쿼리인 경우 태그 검색 지원
+	if queryMap, ok := query.(map[string]interface{}); ok {
+		// 태그 검색
+		if tag, ok := queryMap["tag"].(string); ok && tag != "" {
+			tagKey := fmt.Sprintf("%s:tag:%s", p.keyPrefix, tag)
+			ids, err := p.client.SMembers(ctx, tagKey).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to query by tag: %w", err)
+			}
+			return ids, nil
+		}
+
+		// 제목 검색
+		if title, ok := queryMap["title"].(string); ok && title != "" {
+			titleKey := fmt.Sprintf("%s:title:%s", p.keyPrefix, title)
+			ids, err := p.client.SMembers(ctx, titleKey).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to query by title: %w", err)
+			}
+			return ids, nil
+		}
+	}
+
+	// 기본적으로 모든 문서 반환
+	return p.ListDocuments(ctx)
 }
 
 // Close는 영구 저장소를 닫습니다.
