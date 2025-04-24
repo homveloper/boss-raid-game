@@ -3,7 +3,7 @@ package nodestorage
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // Options represents configuration options for the storage

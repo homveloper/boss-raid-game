@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"nodestorage/cache"
+	"nodestorage/core/nstlog"
 	"sync"
 	"time"
 
-	"boss-raid-game/nodestorage/cache"
-
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 )
 
 // Cachable is an interface for objects that can be cached and versioned
+// T must be a pointer type to ensure proper modification
 type Cachable[T any] interface {
 	Copy() T                // Create a deep copy of the object
 	Version(...int64) int64 // Get or set the version (if argument is provided)
@@ -180,7 +182,7 @@ func (s *StorageImpl[T]) Get(ctx context.Context, id primitive.ObjectID) (T, err
 	// Store in cache
 	if err := s.cache.Set(ctx, id, result, s.options.CacheTTL); err != nil {
 		// Log error but continue
-		fmt.Printf("Failed to cache document: %v\n", err)
+		nstlog.Error("Failed to cache document", zap.Error(err), zap.String("id", id.Hex()))
 	}
 
 	return result, nil
@@ -237,11 +239,8 @@ func (s *StorageImpl[T]) Create(ctx context.Context, data T) (primitive.ObjectID
 	// Initialize version to 1
 	data.Version(1)
 
-	// Generate new ObjectID
-	id := primitive.NewObjectID()
-
 	// Insert into database
-	_, err := s.collection.InsertOne(ctx, data)
+	result, err := s.collection.InsertOne(ctx, data)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			return primitive.NilObjectID, fmt.Errorf("document already exists: %w", err)
@@ -249,10 +248,12 @@ func (s *StorageImpl[T]) Create(ctx context.Context, data T) (primitive.ObjectID
 		return primitive.NilObjectID, fmt.Errorf("failed to insert document: %w", err)
 	}
 
+	id := result.InsertedID.(primitive.ObjectID)
+
 	// Store in cache
 	if err := s.cache.Set(ctx, id, data, s.options.CacheTTL); err != nil {
-		// Log error but continue
-		fmt.Printf("Failed to cache document: %v\n", err)
+		// 캐시 저장 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+		return id, fmt.Errorf("document created but failed to cache: %w", err)
 	}
 
 	return id, nil
@@ -302,13 +303,13 @@ func (s *StorageImpl[T]) Edit(ctx context.Context, id primitive.ObjectID, editFn
 		}
 
 		// Increment version
-		updatedDoc.Version(currentVersion + 1)
+		newVersion := currentVersion + 1
+		updatedDoc.Version(newVersion)
 
 		// Generate diff
 		diff, err := generateDiff(doc, updatedDoc)
 		if err != nil {
-			// Log error but continue
-			fmt.Printf("Failed to generate diff: %v\n", err)
+			return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
 
 		// Update in database with version check
@@ -328,8 +329,8 @@ func (s *StorageImpl[T]) Edit(ctx context.Context, id primitive.ObjectID, editFn
 
 			// Update cache
 			if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
-				// Log error but continue
-				fmt.Printf("Failed to update cache: %v\n", err)
+				// 캐시 업데이트 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+				return updatedDoc, diff, fmt.Errorf("document updated but failed to update cache: %w", err)
 			}
 
 			return updatedDoc, diff, nil
@@ -361,8 +362,8 @@ func (s *StorageImpl[T]) Edit(ctx context.Context, id primitive.ObjectID, editFn
 
 			// Invalidate cache to get fresh data on next retry
 			if err := s.cache.Delete(timeoutCtx, id); err != nil {
-				// Log error but continue
-				fmt.Printf("Failed to invalidate cache: %v\n", err)
+				// 캐시 무효화 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+				return empty, nil, fmt.Errorf("failed to invalidate cache for retry: %w", err)
 			}
 
 			continue
@@ -391,8 +392,8 @@ func (s *StorageImpl[T]) Delete(ctx context.Context, id primitive.ObjectID) erro
 
 	// Delete from cache
 	if err := s.cache.Delete(ctx, id); err != nil {
-		// Log error but continue
-		fmt.Printf("Failed to delete from cache: %v\n", err)
+		// 캐시 삭제 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+		return fmt.Errorf("document deleted from database but failed to delete from cache: %w", err)
 	}
 
 	return nil
@@ -462,7 +463,13 @@ func (s *StorageImpl[T]) broadcastEvent(event WatchEvent[T]) {
 			// Subscriber context is done, will be cleaned up separately
 		default:
 			// Channel is full, skip this subscriber
-			fmt.Printf("Subscriber %d channel is full, skipping event\n", sub.ID)
+			// 이 에러는 내부적으로 발생하므로 호출자에게 직접 반환할 수 없음
+			// 대신 에러 채널을 통해 에러를 전달하는 방식을 고려할 수 있음
+			nstlog.Error("Subscriber channel is full, skipping event",
+				zap.Int("subscriber_id", sub.ID),
+				zap.String("document_id", event.ID.Hex()),
+				zap.String("operation", event.Operation))
+			// 향후 개선: 에러 채널을 통해 에러를 전달하는 방식 구현 고려
 		}
 	}
 }
@@ -481,8 +488,14 @@ func (s *StorageImpl[T]) Close() error {
 		return nil
 	}
 
+	// 먼저 closed 플래그를 설정하여 에러 로깅을 방지
 	s.closed = true
+
+	// 컨텍스트 취소 (이로 인해 Change Stream이 종료됨)
 	s.cancel()
+
+	// 잠시 대기하여 Change Stream이 정상적으로 종료되도록 함
+	time.Sleep(100 * time.Millisecond)
 
 	// Close all subscriber channels
 	s.subMu.Lock()
@@ -493,19 +506,11 @@ func (s *StorageImpl[T]) Close() error {
 	}
 	s.subMu.Unlock()
 
-	// Close connections
-	var errs []error
-
 	// Note: We don't close the cache here as it was provided externally
 	// and might be shared with other components
 
-	if err := s.client.Disconnect(context.Background()); err != nil {
-		errs = append(errs, fmt.Errorf("failed to close MongoDB connection: %w", err))
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors closing storage: %v", errs)
-	}
+	// MongoDB 클라이언트는 외부에서 주입받았으므로 여기서 종료하지 않음
+	// 클라이언트 종료는 클라이언트를 생성한 쪽에서 담당해야 함
 
 	return nil
 }
@@ -561,8 +566,9 @@ func (s *StorageImpl[T]) startWatching() error {
 			// Create a dynamic event structure
 			var rawEvent bson.M
 			if err := stream.Decode(&rawEvent); err != nil {
-				// Log error but continue
-				fmt.Printf("Error decoding change stream event: %v\n", err)
+				// 디코딩 에러는 심각한 문제이므로 로그만 남기고 계속 진행
+				// 이 에러는 스트림 내부에서 발생하므로 호출자에게 직접 반환할 수 없음
+				nstlog.Error("Error decoding change stream event", zap.Error(err))
 				continue
 			}
 
@@ -605,8 +611,13 @@ func (s *StorageImpl[T]) startWatching() error {
 		}
 
 		if err := stream.Err(); err != nil {
-			// Log error
-			fmt.Printf("Change stream error: %v\n", err)
+			// 컨텍스트 취소로 인한 오류는 정상적인 종료이므로 로그를 출력하지 않음
+			// 이 에러는 스트림 내부에서 발생하므로 호출자에게 직접 반환할 수 없음
+			// 대신 에러 채널을 통해 에러를 전달하는 방식을 고려할 수 있음
+			if !s.closed && !errors.Is(err, context.Canceled) {
+				nstlog.Error("Change stream error", zap.Error(err))
+				// 향후 개선: 에러 채널을 통해 에러를 전달하는 방식 구현 고려
+			}
 		}
 	}()
 

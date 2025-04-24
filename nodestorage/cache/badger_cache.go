@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"nodestorage/core/nstlog"
+
 	"github.com/dgraph-io/badger/v4"
+	"go.uber.org/zap"
 )
 
 // BadgerCache is a cache implementation using BadgerDB
@@ -164,7 +167,7 @@ func (c *BadgerCache[T]) runGC() {
 		err := c.db.RunValueLogGC(0.5)
 		if err != nil && err != badger.ErrNoRewrite {
 			// Log error but continue
-			fmt.Printf("BadgerDB GC error: %v\n", err)
+			nstlog.Error("BadgerDB GC error", zap.Error(err))
 		}
 	}
 }

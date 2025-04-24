@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"nodestorage/core/nstlog"
+
+	"go.uber.org/zap"
 )
 
 // MapCache is an in-memory cache implementation using a map
@@ -165,6 +169,7 @@ func (c *MapCache[T]) evictionLoop() {
 // evictExpired removes all expired entries
 func (c *MapCache[T]) evictExpired() {
 	now := time.Now()
+	evictedCount := 0
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -172,6 +177,13 @@ func (c *MapCache[T]) evictExpired() {
 	for key, entry := range c.data {
 		if !entry.Expiration.IsZero() && now.After(entry.Expiration) {
 			delete(c.data, key)
+			evictedCount++
 		}
+	}
+
+	if evictedCount > 0 {
+		nstlog.Debug("Evicted expired cache entries",
+			zap.Int("count", evictedCount),
+			zap.Int("remaining", len(c.data)))
 	}
 }

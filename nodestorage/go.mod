@@ -1,11 +1,12 @@
-module boss-raid-game/nodestorage
+module nodestorage
 
 go 1.23.1
 
 require (
 	github.com/dgraph-io/badger/v4 v4.7.0
-	go.mongodb.org/mongo-driver/v2 v2.2.0
 )
+
+require go.uber.org/multierr v1.10.0 // indirect
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -25,6 +26,7 @@ require (
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
+	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect

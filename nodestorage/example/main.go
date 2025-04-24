@@ -6,19 +6,22 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 
-	"boss-raid-game/nodestorage"
-	"boss-raid-game/nodestorage/cache"
+	"nodestorage"
+	"nodestorage/cache"
+	"nodestorage/core/nstlog"
 )
 
-// UserInventory implements the Cachable interface
+// *UserInventory implements the Cachable interface
 type UserInventory struct {
 	UserID    string    `bson:"user_id" json:"user_id"`
 	Items     []Item    `bson:"items" json:"items"`
@@ -37,8 +40,8 @@ type Item struct {
 }
 
 // Copy creates a deep copy of the inventory
-func (i UserInventory) Copy() UserInventory {
-	newInventory := UserInventory{
+func (i *UserInventory) Copy() *UserInventory {
+	newInventory := &UserInventory{
 		UserID:    i.UserID,
 		Gold:      i.Gold,
 		LastLogin: i.LastLogin,
@@ -55,7 +58,7 @@ func (i UserInventory) Copy() UserInventory {
 }
 
 // Version gets or sets the version
-func (i UserInventory) Version(v ...int64) int64 {
+func (i *UserInventory) Version(v ...int64) int64 {
 	if len(v) > 0 {
 		i.Version_ = v[0]
 	}
@@ -63,6 +66,21 @@ func (i UserInventory) Version(v ...int64) int64 {
 }
 
 func main() {
+	// 명령줄 인수 확인
+	runMultiSim := false
+	if len(os.Args) > 1 && os.Args[1] == "multi" {
+		runMultiSim = true
+	}
+
+	// 여러 번의 시뮬레이션 실행
+	if runMultiSim {
+		runMultipleSimulations()
+		return
+	}
+
+	// 단일 시뮬레이션 실행
+	nstlog.SetLogger(true, "debug")
+
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -76,14 +94,24 @@ func main() {
 		cancel()
 	}()
 
-	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017/?replicaSet=rs"))
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
+	nstlog.Debug("Connected to MongoDB")
+
+	// 프로그램 종료 시 MongoDB 연결 종료
 	defer func() {
-		if err := client.Disconnect(ctx); err != nil {
-			log.Fatalf("Failed to disconnect from MongoDB: %v", err)
+		// MongoDB 연결 종료 (storage.Close()는 이미 defer로 호출되어 있음)
+		disconnectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := client.Disconnect(disconnectCtx); err != nil {
+			// 오류 메시지를 Fatal 대신 Warning으로 출력
+			if !strings.Contains(err.Error(), "client is disconnected") {
+				nstlog.Warn("Failed to disconnect from MongoDB", zap.Error(err))
+			}
 		}
 	}()
 
@@ -93,14 +121,14 @@ func main() {
 	options := nodestorage.DefaultOptions()
 
 	// Create cache with options
-	cacheStorage := cache.NewMapCache[UserInventory](
+	cacheStorage := cache.NewMapCache[*UserInventory](
 		cache.WithMapMaxSize(10000),
 		cache.WithMapDefaultTTL(time.Hour),
 		cache.WithMapEvictionInterval(time.Minute*5),
 	)
 
 	// Alternatively, use BadgerDB cache
-	// cacheStorage, err := cache.NewBadgerCache[UserInventory](
+	// cacheStorage, err := cache.NewBadgerCache[*UserInventory](
 	// 	cache.WithBadgerPath("./badger-data"),
 	// 	cache.WithBadgerDefaultTTL(time.Hour),
 	// )
@@ -109,14 +137,15 @@ func main() {
 	// }
 
 	// Create storage
-	storage, err := nodestorage.NewStorage[UserInventory](ctx, client, collection, cacheStorage, options)
+	storage, err := nodestorage.NewStorage[*UserInventory](ctx, client, collection, cacheStorage, options)
 	if err != nil {
-		log.Fatalf("Failed to create storage: %v", err)
+		nstlog.Fatal("Failed to create storage", zap.Error(err))
+		return
 	}
 	defer storage.Close()
 
 	// Create a user inventory
-	inventory := UserInventory{
+	inventory := &UserInventory{
 		UserID: "user123",
 		Items: []Item{
 			{
@@ -134,9 +163,10 @@ func main() {
 	// Create document
 	docID, err := storage.Create(ctx, inventory)
 	if err != nil {
-		log.Fatalf("Failed to create document: %v", err)
+		nstlog.Fatal("Failed to create document", zap.Error(err))
+		return
 	}
-	fmt.Printf("Created inventory for user %s with ID %v\n", inventory.UserID, docID)
+	nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", docID.Hex()))
 
 	// Start multiple watchers to demonstrate individual channels
 	for i := 0; i < 2; i++ {
@@ -149,24 +179,25 @@ func main() {
 		// Start watching for changes
 		watchChan, err := storage.Watch(watchCtx)
 		if err != nil {
-			log.Fatalf("Failed to watch for changes: %v", err)
+			nstlog.Fatal("Failed to start watching", zap.Error(err))
+			return
 		}
 
 		// Handle watch events in a goroutine
-		go func(id int, ch <-chan nodestorage.WatchEvent[UserInventory]) {
+		go func(id int, ch <-chan nodestorage.WatchEvent[*UserInventory]) {
 			for event := range ch {
-				fmt.Printf("Watcher %d - Event: %s %v\n", id, event.Operation, event.ID)
+				nstlog.Debug("Watcher event", zap.Int("watcherID", id), zap.String("operation", event.Operation), zap.String("documentID", event.ID.Hex()))
 				if event.Diff != nil {
-					fmt.Printf("Watcher %d - Changes: %d operations\n", id, len(event.Diff.Operations))
+					nstlog.Debug("Watcher %d - Changes", zap.Int("watcherID", id), zap.Int("changes", len(event.Diff.Operations)))
 				}
 			}
-			fmt.Printf("Watcher %d - Channel closed\n", id)
+			nstlog.Debug("Watcher channel closed", zap.Int("watcherID", id))
 		}(watcherID, watchChan)
 	}
 
 	// Simulate multiple nodes updating the same document
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		nodeID := i + 1
 		go func(id int) {
@@ -176,36 +207,35 @@ func main() {
 	}
 
 	wg.Wait()
-	fmt.Println("All nodes completed")
+	nstlog.Debug("All nodes completed")
 
 	// Get final document
 	finalInventory, err := storage.Get(ctx, docID)
 	if err != nil {
-		log.Fatalf("Failed to get document: %v", err)
+		nstlog.Fatal("Failed to get document", zap.Error(err))
+		return
 	}
 
-	fmt.Printf("\nFinal inventory for user %s:\n", finalInventory.UserID)
-	fmt.Printf("  Gold: %d\n", finalInventory.Gold)
-	fmt.Printf("  Items: %d\n", len(finalInventory.Items))
+	nstlog.Debug("Final inventory", zap.Int("gold", finalInventory.Gold), zap.Int("items", len(finalInventory.Items)))
 	for _, item := range finalInventory.Items {
-		fmt.Printf("    - %s (x%d)\n", item.Name, item.Quantity)
+		nstlog.Debug("Final inventory item", zap.String("itemName", item.Name), zap.Int("quantity", item.Quantity))
 	}
 }
 
 // simulateNode simulates a node updating the document
-func simulateNode(ctx context.Context, storage nodestorage.Storage[UserInventory], docID primitive.ObjectID, nodeID int) {
-	for i := 0; i < 5; i++ {
+func simulateNode(ctx context.Context, storage nodestorage.Storage[*UserInventory], docID primitive.ObjectID, nodeID int) {
+	for i := nodeID; i < nodeID+3; i++ {
 		// Add some delay to simulate real-world conditions
 		time.Sleep(time.Duration(100+nodeID*50) * time.Millisecond)
 
 		// Edit the document with options
-		updatedInventory, diff, err := storage.Edit(ctx, docID, func(inventory UserInventory) (UserInventory, error) {
+		updatedInventory, diff, err := storage.Edit(ctx, docID, func(inventory *UserInventory) (*UserInventory, error) {
 			// Simulate different operations
 			switch i % 3 {
 			case 0:
 				// Add gold
 				inventory.Gold += 100 * nodeID
-				fmt.Printf("Node %d: Added %d gold\n", nodeID, 100*nodeID)
+				nstlog.Debug("Node %d : Added gold", zap.Int("nodeID", nodeID), zap.Int("gold", 100*nodeID))
 
 			case 1:
 				// Add an item
@@ -217,15 +247,15 @@ func simulateNode(ctx context.Context, storage nodestorage.Storage[UserInventory
 					AddedAt:  time.Now(),
 				}
 				inventory.Items = append(inventory.Items, newItem)
-				fmt.Printf("Node %d: Added item %s\n", nodeID, newItem.Name)
+				nstlog.Debug("Node %d : Added item", zap.Int("nodeID", nodeID), zap.String("itemName", newItem.Name))
 
 			case 2:
 				// Update existing item if any
 				if len(inventory.Items) > 0 {
 					itemIdx := (nodeID + i) % len(inventory.Items)
 					inventory.Items[itemIdx].Quantity += nodeID
-					fmt.Printf("Node %d: Updated item %s quantity to %d\n",
-						nodeID, inventory.Items[itemIdx].Name, inventory.Items[itemIdx].Quantity)
+
+					nstlog.Debug("Node %d : Updated item quantity", zap.Int("nodeID", nodeID), zap.Int("itemIdx", itemIdx), zap.Int("quantity", inventory.Items[itemIdx].Quantity))
 				}
 			}
 
@@ -237,11 +267,16 @@ func simulateNode(ctx context.Context, storage nodestorage.Storage[UserInventory
 		})
 
 		if err != nil {
-			fmt.Printf("Node %d: Failed to edit document: %v\n", nodeID, err)
+			nstlog.Debug("Node %d : Failed to edit document", zap.Int("nodeID", nodeID), zap.Error(err))
 			continue
 		}
 
-		fmt.Printf("Node %d: Successfully edited document (version: %d, changes: %d)\n",
-			nodeID, updatedInventory.Version(), len(diff.Operations))
+		nstlog.Debug("Node %d : Successfully edited document",
+			zap.Int("nodeID", nodeID),
+			zap.Int64("version", updatedInventory.Version_),
+			zap.Int("changes", len(diff.Operations)),
+			zap.Int("currentGold", updatedInventory.Gold),
+			zap.Int("i", i),
+			zap.Int("i%3", i%3))
 	}
 }
