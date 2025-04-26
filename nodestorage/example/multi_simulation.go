@@ -113,12 +113,12 @@ func runMultipleSimulations() {
 		}
 
 		// Create document
-		docID, err := storage.Create(ctx, inventory)
+		createDoc, err := storage.CreateAndGet(ctx, inventory)
 		if err != nil {
 			nstlog.Fatal("Failed to create document", zap.Error(err))
 			return
 		}
-		nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", docID.String()))
+		nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", createDoc.ID.Hex()))
 
 		// Start multiple watchers to demonstrate individual channels
 		var watchCancels []context.CancelFunc
@@ -158,7 +158,7 @@ func runMultipleSimulations() {
 			nodeID := i + 1
 			go func(id int) {
 				defer wg.Done()
-				simulateNodeMulti(ctx, storage, docID, id)
+				simulateNodeMulti(ctx, storage, createDoc.ID, id)
 			}(nodeID)
 		}
 
@@ -166,7 +166,7 @@ func runMultipleSimulations() {
 		nstlog.Debug("All nodes completed", zap.Int("simulation", sim+1))
 
 		// Get final document
-		finalInventory, err := storage.Get(ctx, docID)
+		finalInventory, err := storage.Get(ctx, createDoc.ID)
 		if err != nil {
 			nstlog.Fatal("Failed to get document", zap.Error(err))
 			return

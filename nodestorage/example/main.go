@@ -23,11 +23,12 @@ import (
 
 // *UserInventory implements the Cachable interface
 type UserInventory struct {
-	UserID    string    `bson:"user_id" json:"user_id"`
-	Items     []Item    `bson:"items" json:"items"`
-	Gold      int       `bson:"gold" json:"gold"`
-	LastLogin time.Time `bson:"last_login" json:"last_login"`
-	Version_  int64     `bson:"version" json:"-"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	UserID    string             `bson:"user_id" json:"user_id"`
+	Items     []Item             `bson:"items" json:"items"`
+	Gold      int                `bson:"gold" json:"gold"`
+	LastLogin time.Time          `bson:"last_login" json:"last_login"`
+	Version_  int64              `bson:"version" json:"-"`
 }
 
 // Item represents an inventory item
@@ -161,12 +162,12 @@ func main() {
 	}
 
 	// Create document
-	docID, err := storage.Create(ctx, inventory)
+	createdDoc, err := storage.CreateAndGet(ctx, inventory)
 	if err != nil {
 		nstlog.Fatal("Failed to create document", zap.Error(err))
 		return
 	}
-	nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", docID.Hex()))
+	nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", createdDoc.ID.Hex()))
 
 	// Start multiple watchers to demonstrate individual channels
 	for i := 0; i < 2; i++ {
@@ -202,7 +203,7 @@ func main() {
 		nodeID := i + 1
 		go func(id int) {
 			defer wg.Done()
-			simulateNode(ctx, storage, docID, id)
+			simulateNode(ctx, storage, createdDoc.ID, id)
 		}(nodeID)
 	}
 
@@ -210,7 +211,7 @@ func main() {
 	nstlog.Debug("All nodes completed")
 
 	// Get final document
-	finalInventory, err := storage.Get(ctx, docID)
+	finalInventory, err := storage.Get(ctx, createdDoc.ID)
 	if err != nil {
 		nstlog.Fatal("Failed to get document", zap.Error(err))
 		return

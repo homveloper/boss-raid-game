@@ -2,15 +2,18 @@ package nodestorage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/rand"
 	"nodestorage/cache"
 	"nodestorage/core/nstlog"
+	"reflect"
 	"sync"
 	"time"
 
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -33,8 +36,10 @@ type Storage[T Cachable[T]] interface {
 	// GetByQuery retrieves documents using a query
 	GetByQuery(ctx context.Context, query interface{}) ([]T, error)
 
-	// Create creates a new document
-	Create(ctx context.Context, data T) (primitive.ObjectID, error)
+	// CreateAndGet creates a new document or returns the existing one if it already exists.
+	// This function is safe to use in distributed environments as it implements "CreateIfNotExists" semantics.
+	// It returns the created or existing document directly.
+	CreateAndGet(ctx context.Context, data T) (T, error)
 
 	// Edit edits a document with optimistic concurrency control
 	Edit(ctx context.Context, id primitive.ObjectID, editFn EditFunc[T], opts ...EditOption) (T, *Diff, error)
@@ -65,15 +70,10 @@ type WatchEvent[T Cachable[T]] struct {
 
 // Diff represents the difference between two document versions
 type Diff struct {
-	Operations []Operation `json:"operations"`
-}
-
-// Operation represents a single change operation
-type Operation struct {
-	Type  string      `json:"type"`           // "add", "remove", "replace", "move", "copy", "test"
-	Path  string      `json:"path"`           // JSON pointer path
-	Value interface{} `json:"value"`          // New value for add/replace operations
-	From  string      `json:"from,omitempty"` // Source path for move/copy operations
+	// RFC 6902 JSON Patch
+	JSONPatch jsonpatch.Patch `json:"jsonPatch,omitempty"`
+	// RFC 7396 JSON Merge Patch
+	MergePatch []byte `json:"mergePatch,omitempty"`
 }
 
 // Subscriber represents a watch subscriber
@@ -230,33 +230,87 @@ func (s *StorageImpl[T]) GetByQuery(ctx context.Context, query interface{}) ([]T
 	return results, nil
 }
 
-// Create creates a new document
-func (s *StorageImpl[T]) Create(ctx context.Context, data T) (primitive.ObjectID, error) {
+// CreateAndGet creates a new document or returns the existing one if it already exists.
+// This function is safe to use in distributed environments as it implements "CreateIfNotExists" semantics.
+// It returns the created or existing document directly.
+// Implementation uses MongoDB's FindOneAndUpdate with upsert option for atomic operation.
+func (s *StorageImpl[T]) CreateAndGet(ctx context.Context, data T) (T, error) {
+	var empty T
+
 	if s.closed {
-		return primitive.NilObjectID, ErrClosed
+		return empty, ErrClosed
 	}
 
-	// Initialize version to 1
+	// We'll check for nil using reflection instead
+
+	// Get the document ID
+	var id primitive.ObjectID
+	v := reflect.ValueOf(data)
+
+	// Check if it's a pointer and not nil
+	if v.Kind() == reflect.Ptr && !v.IsNil() {
+		// Get the element the pointer points to
+		elem := v.Elem()
+
+		// Check if the struct has an ID field of type ObjectID
+		idField := elem.FieldByName("ID")
+		if idField.IsValid() && idField.Type() == reflect.TypeOf(primitive.ObjectID{}) {
+			// If the document already has an ID, use it
+			id = idField.Interface().(primitive.ObjectID)
+			if id == primitive.NilObjectID {
+				// Generate a new ID if it's nil
+				id = primitive.NewObjectID()
+				idField.Set(reflect.ValueOf(id))
+			}
+		} else {
+			// If the document doesn't have an ID field, generate a new one
+			id = primitive.NewObjectID()
+		}
+	} else {
+		// Not a valid pointer
+		return empty, fmt.Errorf("invalid document: not a pointer or nil pointer")
+	}
+
+	// Initialize version to 1 for new documents
 	data.Version(1)
 
-	// Insert into database
-	result, err := s.collection.InsertOne(ctx, data)
-	if err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return primitive.NilObjectID, fmt.Errorf("document already exists: %w", err)
-		}
-		return primitive.NilObjectID, fmt.Errorf("failed to insert document: %w", err)
+	// Set up options for FindOneAndUpdate
+	opts := options.FindOneAndUpdate()
+	opts.SetUpsert(true)                  // Create if not exists
+	opts.SetReturnDocument(options.After) // Return the document after update
+
+	// Create filter for the document ID
+	filter := bson.M{"_id": id}
+
+	// Create update document with $setOnInsert to only set fields when document is created
+	// If document already exists, this won't modify it
+	update := bson.M{
+		"$setOnInsert": data,
 	}
 
-	id := result.InsertedID.(primitive.ObjectID)
+	// Execute FindOneAndUpdate operation
+	var result T
+	err := s.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
+
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			// This shouldn't happen with upsert:true, but handle it anyway
+			return empty, fmt.Errorf("failed to create or get document: %w", err)
+		}
+		return empty, fmt.Errorf("failed to create or get document: %w", err)
+	}
 
 	// Store in cache
-	if err := s.cache.Set(ctx, id, data, s.options.CacheTTL); err != nil {
+	if err := s.cache.Set(ctx, id, result, s.options.CacheTTL); err != nil {
 		// 캐시 저장 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
-		return id, fmt.Errorf("document created but failed to cache: %w", err)
+		nstlog.Warn("Document created/retrieved but failed to cache",
+			zap.Error(err),
+			zap.String("id", id.Hex()))
+		return result, fmt.Errorf("document created/retrieved but failed to cache: %w", err)
 	}
 
-	return id, nil
+	// Return the document
+	return result, nil
 }
 
 // Edit edits a document with optimistic concurrency control
@@ -626,18 +680,41 @@ func (s *StorageImpl[T]) startWatching() error {
 
 // generateDiff generates a diff between two documents
 func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
-	// This is a simplified diff implementation
-	// In a real implementation, you would use a proper diff algorithm
-	// to generate more granular operations
+	// Create a basic diff
+	diff := &Diff{}
 
-	// For now, we just create a simple replacement operation
-	return &Diff{
-		Operations: []Operation{
-			{
-				Type:  "replace",
-				Path:  "",
-				Value: newDoc,
-			},
-		},
-	}, nil
+	// Generate JSON Patch (RFC 6902) and JSON Merge Patch (RFC 7396)
+	oldJSON, err := json.Marshal(oldDoc)
+	if err != nil {
+		return diff, fmt.Errorf("failed to marshal old document: %w", err)
+	}
+
+	newJSON, err := json.Marshal(newDoc)
+	if err != nil {
+		return diff, fmt.Errorf("failed to marshal new document: %w", err)
+	}
+
+	// Generate RFC 6902 JSON Patch
+	// We need to manually create the patch since there's no direct CreatePatch function
+	// First, we'll use the Equal function to check if the documents are different
+	if !jsonpatch.Equal(oldJSON, newJSON) {
+		// Create a patch manually
+		patchJSON := []byte(fmt.Sprintf(`[{"op":"replace","path":"","value":%s}]`, string(newJSON)))
+		patch, err := jsonpatch.DecodePatch(patchJSON)
+		if err != nil {
+			nstlog.Warn("Failed to create JSON patch", zap.Error(err))
+		} else {
+			diff.JSONPatch = patch
+		}
+	}
+
+	// Generate RFC 7396 JSON Merge Patch
+	mergePatch, err := jsonpatch.CreateMergePatch(oldJSON, newJSON)
+	if err != nil {
+		nstlog.Warn("Failed to create merge patch", zap.Error(err))
+	} else {
+		diff.MergePatch = mergePatch
+	}
+
+	return diff, nil
 }

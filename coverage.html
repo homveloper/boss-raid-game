@@ -1,0 +1,2232 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>cache: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">nodestorage/cache/badger_cache.go (90.8%)</option>
+				
+				<option value="file1">nodestorage/cache/map_cache.go (100.0%)</option>
+				
+				<option value="file2">nodestorage/cache/options.go (100.0%)</option>
+				
+				<option value="file3">nodestorage/core/nstlog/logger.go (0.0%)</option>
+				
+				<option value="file4">nodestorage/errors.go (100.0%)</option>
+				
+				<option value="file5">nodestorage/example/main.go (0.0%)</option>
+				
+				<option value="file6">nodestorage/example/multi_simulation.go (0.0%)</option>
+				
+				<option value="file7">nodestorage/options.go (100.0%)</option>
+				
+				<option value="file8">nodestorage/storage.go (81.9%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package cache
+
+import (
+        "context"
+        "encoding/json"
+        "fmt"
+        "time"
+
+        "nodestorage/core/nstlog"
+
+        "github.com/dgraph-io/badger/v4"
+        "go.uber.org/zap"
+)
+
+// BadgerCache is a cache implementation using BadgerDB
+type BadgerCache[T any] struct {
+        db      *badger.DB
+        options *BadgerCacheOptions
+}
+
+// NewBadgerCache creates a new BadgerDB cache with the provided options
+func NewBadgerCache[T any](opts ...BadgerCacheOption) (*BadgerCache[T], error) <span class="cov8" title="1">{
+        // Start with default options
+        options := DefaultBadgerCacheOptions()
+
+        // Apply provided options
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt(options)
+        }</span>
+
+        // Configure BadgerDB options
+        <span class="cov8" title="1">badgerOpts := badger.DefaultOptions(options.Path)
+        badgerOpts.Logger = nil // Disable logging
+
+        if options.InMemory </span><span class="cov8" title="1">{
+                badgerOpts = badgerOpts.WithInMemory(true)
+        }</span>
+
+        // Open BadgerDB
+        <span class="cov8" title="1">db, err := badger.Open(badgerOpts)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to open BadgerDB: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">cache := &amp;BadgerCache[T]{
+                db:      db,
+                options: options,
+        }
+
+        // Start garbage collection
+        if options.GCInterval &gt; 0 </span><span class="cov8" title="1">{
+                go cache.runGC()
+        }</span>
+
+        <span class="cov8" title="1">return cache, nil</span>
+}
+
+// Get retrieves a document from the cache
+func (c *BadgerCache[T]) Get(ctx context.Context, id interface{}) (T, error) <span class="cov8" title="1">{
+        var empty T
+
+        // Convert ID to string for key
+        key := fmt.Sprintf("%v", id)
+
+        var value []byte
+        err := c.db.View(func(txn *badger.Txn) error </span><span class="cov8" title="1">{
+                item, err := txn.Get([]byte(key))
+                if err != nil </span><span class="cov8" title="1">{
+                        return err
+                }</span>
+
+                <span class="cov8" title="1">value, err = item.ValueCopy(nil)
+                return err</span>
+        })
+
+        <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
+                if err == badger.ErrKeyNotFound </span><span class="cov8" title="1">{
+                        return empty, ErrCacheMiss
+                }</span>
+                <span class="cov0" title="0">return empty, fmt.Errorf("failed to get from cache: %w", err)</span>
+        }
+
+        // Deserialize the value
+        <span class="cov8" title="1">var result T
+        if err := json.Unmarshal(value, &amp;result); err != nil </span><span class="cov0" title="0">{
+                return empty, fmt.Errorf("failed to deserialize cached value: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return result, nil</span>
+}
+
+// Set stores a document in the cache with optional TTL
+func (c *BadgerCache[T]) Set(ctx context.Context, id interface{}, data T, ttl time.Duration) error <span class="cov8" title="1">{
+        // Convert ID to string for key
+        key := fmt.Sprintf("%v", id)
+
+        // Serialize the data
+        value, err := json.Marshal(data)
+        if err != nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to serialize data: %w", err)
+        }</span>
+
+        // Set TTL if not provided
+        <span class="cov8" title="1">if ttl &lt;= 0 &amp;&amp; c.options.DefaultTTL &gt; 0 </span><span class="cov8" title="1">{
+                ttl = c.options.DefaultTTL
+        }</span>
+
+        // Store in BadgerDB
+        <span class="cov8" title="1">err = c.db.Update(func(txn *badger.Txn) error </span><span class="cov8" title="1">{
+                entry := badger.NewEntry([]byte(key), value)
+                if ttl &gt; 0 </span><span class="cov8" title="1">{
+                        entry = entry.WithTTL(ttl)
+                }</span>
+                <span class="cov8" title="1">return txn.SetEntry(entry)</span>
+        })
+
+        <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to set in cache: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Delete removes a document from the cache
+func (c *BadgerCache[T]) Delete(ctx context.Context, id interface{}) error <span class="cov8" title="1">{
+        // Convert ID to string for key
+        key := fmt.Sprintf("%v", id)
+
+        err := c.db.Update(func(txn *badger.Txn) error </span><span class="cov8" title="1">{
+                return txn.Delete([]byte(key))
+        }</span>)
+
+        <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete from cache: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Clear removes all documents from the cache
+func (c *BadgerCache[T]) Clear(ctx context.Context) error <span class="cov8" title="1">{
+        // Drop all data in BadgerDB
+        err := c.db.DropAll()
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to clear cache: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Close closes the cache
+func (c *BadgerCache[T]) Close() error <span class="cov8" title="1">{
+        if c.db != nil </span><span class="cov8" title="1">{
+                if err := c.db.Close(); err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to close BadgerDB: %w", err)
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+// runGC runs BadgerDB garbage collection periodically
+func (c *BadgerCache[T]) runGC() <span class="cov8" title="1">{
+        ticker := time.NewTicker(c.options.GCInterval)
+        defer ticker.Stop()
+
+        for range ticker.C </span><span class="cov8" title="1">{
+                err := c.db.RunValueLogGC(0.5)
+                if err != nil &amp;&amp; err != badger.ErrNoRewrite </span><span class="cov8" title="1">{
+                        // Log error but continue
+                        nstlog.Error("BadgerDB GC error", zap.Error(err))
+                }</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package cache
+
+import (
+        "context"
+        "fmt"
+        "sync"
+        "time"
+
+        "nodestorage/core/nstlog"
+
+        "go.uber.org/zap"
+)
+
+// MapCache is an in-memory cache implementation using a map
+type MapCache[T any] struct {
+        data      map[string]cacheEntry[T]
+        mu        sync.RWMutex
+        options   *MapCacheOptions
+        closeChan chan struct{}
+        closed    bool
+}
+
+// cacheEntry represents a cached item with expiration
+type cacheEntry[T any] struct {
+        Value      T
+        Expiration time.Time
+}
+
+// NewMapCache creates a new in-memory map cache with the provided options
+func NewMapCache[T any](opts ...MapCacheOption) *MapCache[T] <span class="cov8" title="1">{
+        // Start with default options
+        options := DefaultMapCacheOptions()
+
+        // Apply provided options
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt(options)
+        }</span>
+
+        <span class="cov8" title="1">cache := &amp;MapCache[T]{
+                data:      make(map[string]cacheEntry[T]),
+                options:   options,
+                closeChan: make(chan struct{}),
+        }
+
+        // Start eviction goroutine if eviction interval is set
+        if options.EvictionInterval &gt; 0 </span><span class="cov8" title="1">{
+                go cache.evictionLoop()
+        }</span>
+
+        <span class="cov8" title="1">return cache</span>
+}
+
+// Get retrieves a document from the cache
+func (c *MapCache[T]) Get(ctx context.Context, id interface{}) (T, error) <span class="cov8" title="1">{
+        var empty T
+
+        // Convert ID to string for map key
+        key := fmt.Sprintf("%v", id)
+
+        c.mu.RLock()
+        defer c.mu.RUnlock()
+
+        if c.closed </span><span class="cov8" title="1">{
+                return empty, fmt.Errorf("cache is closed")
+        }</span>
+
+        <span class="cov8" title="1">entry, ok := c.data[key]
+        if !ok </span><span class="cov8" title="1">{
+                return empty, ErrCacheMiss
+        }</span>
+
+        // Check if entry has expired
+        <span class="cov8" title="1">if !entry.Expiration.IsZero() &amp;&amp; time.Now().After(entry.Expiration) </span><span class="cov8" title="1">{
+                // Entry has expired, remove it
+                delete(c.data, key)
+                return empty, ErrCacheMiss
+        }</span>
+
+        <span class="cov8" title="1">return entry.Value, nil</span>
+}
+
+// Set stores a document in the cache with optional TTL
+func (c *MapCache[T]) Set(ctx context.Context, id interface{}, data T, ttl time.Duration) error <span class="cov8" title="1">{
+        // Convert ID to string for map key
+        key := fmt.Sprintf("%v", id)
+
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.closed </span><span class="cov8" title="1">{
+                return fmt.Errorf("cache is closed")
+        }</span>
+
+        // Calculate expiration time
+        <span class="cov8" title="1">var expiration time.Time
+        if ttl &gt; 0 </span><span class="cov8" title="1">{
+                expiration = time.Now().Add(ttl)
+        }</span> else<span class="cov8" title="1"> if c.options.DefaultTTL &gt; 0 </span><span class="cov8" title="1">{
+                expiration = time.Now().Add(c.options.DefaultTTL)
+        }</span>
+
+        // Store in cache
+        <span class="cov8" title="1">c.data[key] = cacheEntry[T]{
+                Value:      data,
+                Expiration: expiration,
+        }
+
+        return nil</span>
+}
+
+// Delete removes a document from the cache
+func (c *MapCache[T]) Delete(ctx context.Context, id interface{}) error <span class="cov8" title="1">{
+        // Convert ID to string for map key
+        key := fmt.Sprintf("%v", id)
+
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.closed </span><span class="cov8" title="1">{
+                return fmt.Errorf("cache is closed")
+        }</span>
+
+        <span class="cov8" title="1">delete(c.data, key)
+        return nil</span>
+}
+
+// Clear removes all documents from the cache
+func (c *MapCache[T]) Clear(ctx context.Context) error <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.closed </span><span class="cov8" title="1">{
+                return fmt.Errorf("cache is closed")
+        }</span>
+
+        <span class="cov8" title="1">c.data = make(map[string]cacheEntry[T])
+        return nil</span>
+}
+
+// Close closes the cache
+func (c *MapCache[T]) Close() error <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.closed </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">c.closed = true
+        close(c.closeChan)
+        return nil</span>
+}
+
+// evictionLoop periodically removes expired entries
+func (c *MapCache[T]) evictionLoop() <span class="cov8" title="1">{
+        ticker := time.NewTicker(c.options.EvictionInterval)
+        defer ticker.Stop()
+
+        for </span><span class="cov8" title="1">{
+                select </span>{
+                case &lt;-ticker.C:<span class="cov8" title="1">
+                        c.evictExpired()</span>
+                case &lt;-c.closeChan:<span class="cov8" title="1">
+                        return</span>
+                }
+        }
+}
+
+// evictExpired removes all expired entries
+func (c *MapCache[T]) evictExpired() <span class="cov8" title="1">{
+        now := time.Now()
+        evictedCount := 0
+
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        for key, entry := range c.data </span><span class="cov8" title="1">{
+                if !entry.Expiration.IsZero() &amp;&amp; now.After(entry.Expiration) </span><span class="cov8" title="1">{
+                        delete(c.data, key)
+                        evictedCount++
+                }</span>
+        }
+
+        <span class="cov8" title="1">if evictedCount &gt; 0 </span><span class="cov8" title="1">{
+                nstlog.Debug("Evicted expired cache entries",
+                        zap.Int("count", evictedCount),
+                        zap.Int("remaining", len(c.data)))
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package cache
+
+import (
+        "time"
+)
+
+// Common option types
+
+// Option is a function that configures an option
+type Option interface{}
+
+// MapCacheOption is a function that configures MapCache options
+type MapCacheOption func(*MapCacheOptions)
+
+// BadgerCacheOption is a function that configures BadgerCache options
+type BadgerCacheOption func(*BadgerCacheOptions)
+
+// MapCacheOptions represents configuration options for the MapCache
+type MapCacheOptions struct {
+        // Maximum number of documents in cache
+        MaxSize int64
+
+        // Default TTL for cache entries
+        DefaultTTL time.Duration
+
+        // How often to run the eviction process
+        EvictionInterval time.Duration
+}
+
+// BadgerCacheOptions represents configuration options for the BadgerCache
+type BadgerCacheOptions struct {
+        // Path to store BadgerDB files
+        Path string
+
+        // Whether to use in-memory storage
+        InMemory bool
+
+        // Default TTL for cache entries
+        DefaultTTL time.Duration
+
+        // GC interval for BadgerDB
+        GCInterval time.Duration
+}
+
+// Default options
+
+// DefaultMapCacheOptions returns the default MapCache options
+func DefaultMapCacheOptions() *MapCacheOptions <span class="cov8" title="1">{
+        return &amp;MapCacheOptions{
+                MaxSize:          10000,
+                DefaultTTL:       time.Hour * 24,
+                EvictionInterval: time.Minute * 5,
+        }
+}</span>
+
+// DefaultBadgerCacheOptions returns the default BadgerCache options
+func DefaultBadgerCacheOptions() *BadgerCacheOptions <span class="cov8" title="1">{
+        return &amp;BadgerCacheOptions{
+                Path:       "./badger-data",
+                InMemory:   false,
+                DefaultTTL: time.Hour * 24,
+                GCInterval: time.Minute * 5,
+        }
+}</span>
+
+// MapCache options
+
+// WithMapMaxSize sets the maximum number of documents in the map cache
+func WithMapMaxSize(maxSize int64) MapCacheOption <span class="cov8" title="1">{
+        return func(opts *MapCacheOptions) </span><span class="cov8" title="1">{
+                opts.MaxSize = maxSize
+        }</span>
+}
+
+// WithMapDefaultTTL sets the default TTL for map cache entries
+func WithMapDefaultTTL(ttl time.Duration) MapCacheOption <span class="cov8" title="1">{
+        return func(opts *MapCacheOptions) </span><span class="cov8" title="1">{
+                opts.DefaultTTL = ttl
+        }</span>
+}
+
+// WithMapEvictionInterval sets how often to run the eviction process for map cache
+func WithMapEvictionInterval(interval time.Duration) MapCacheOption <span class="cov8" title="1">{
+        return func(opts *MapCacheOptions) </span><span class="cov8" title="1">{
+                opts.EvictionInterval = interval
+        }</span>
+}
+
+// BadgerCache options
+
+// WithBadgerPath sets the path to store BadgerDB files
+func WithBadgerPath(path string) BadgerCacheOption <span class="cov8" title="1">{
+        return func(opts *BadgerCacheOptions) </span><span class="cov8" title="1">{
+                opts.Path = path
+        }</span>
+}
+
+// WithBadgerInMemory sets whether to use in-memory storage for BadgerDB
+func WithBadgerInMemory(inMemory bool) BadgerCacheOption <span class="cov8" title="1">{
+        return func(opts *BadgerCacheOptions) </span><span class="cov8" title="1">{
+                opts.InMemory = inMemory
+        }</span>
+}
+
+// WithBadgerDefaultTTL sets the default TTL for BadgerDB cache entries
+func WithBadgerDefaultTTL(ttl time.Duration) BadgerCacheOption <span class="cov8" title="1">{
+        return func(opts *BadgerCacheOptions) </span><span class="cov8" title="1">{
+                opts.DefaultTTL = ttl
+        }</span>
+}
+
+// WithBadgerGCInterval sets how often to run the garbage collection for BadgerDB
+func WithBadgerGCInterval(interval time.Duration) BadgerCacheOption <span class="cov8" title="1">{
+        return func(opts *BadgerCacheOptions) </span><span class="cov8" title="1">{
+                opts.GCInterval = interval
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package nstlog
+
+import (
+        "os"
+        "runtime"
+        "strings"
+        "sync"
+
+        "go.uber.org/zap"
+        "go.uber.org/zap/zapcore"
+)
+
+var (
+        // 기본 로거 인스턴스
+        logger *zap.Logger
+        // 로거 초기화를 위한 뮤텍스
+        loggerMu sync.RWMutex
+        // 함수 위치 표시 여부
+        showCaller bool
+)
+
+// 로거 초기화 함수
+func init() <span class="cov0" title="0">{
+        // 기본 로거 설정
+        SetLogger(true, "info")
+}</span>
+
+// SetLogger는 로거를 설정합니다.
+// showCallerInfo: 함수 위치 표시 여부
+// logLevel: 로그 레벨 (debug, info, warn, error, dpanic, panic, fatal)
+func SetLogger(showCallerInfo bool, logLevel string) <span class="cov0" title="0">{
+        loggerMu.Lock()
+        defer loggerMu.Unlock()
+
+        // 로그 레벨 설정
+        var level zapcore.Level
+        switch strings.ToLower(logLevel) </span>{
+        case "debug":<span class="cov0" title="0">
+                level = zapcore.DebugLevel</span>
+        case "info":<span class="cov0" title="0">
+                level = zapcore.InfoLevel</span>
+        case "warn":<span class="cov0" title="0">
+                level = zapcore.WarnLevel</span>
+        case "error":<span class="cov0" title="0">
+                level = zapcore.ErrorLevel</span>
+        case "dpanic":<span class="cov0" title="0">
+                level = zapcore.DPanicLevel</span>
+        case "panic":<span class="cov0" title="0">
+                level = zapcore.PanicLevel</span>
+        case "fatal":<span class="cov0" title="0">
+                level = zapcore.FatalLevel</span>
+        default:<span class="cov0" title="0">
+                level = zapcore.InfoLevel</span>
+        }
+
+        // 인코더 설정
+        <span class="cov0" title="0">encoderConfig := zapcore.EncoderConfig{
+                TimeKey:        "time",
+                LevelKey:       "level",
+                NameKey:        "logger",
+                CallerKey:      "caller",
+                FunctionKey:    zapcore.OmitKey,
+                MessageKey:     "msg",
+                StacktraceKey:  "stacktrace",
+                LineEnding:     zapcore.DefaultLineEnding,
+                EncodeLevel:    zapcore.CapitalLevelEncoder,
+                EncodeTime:     zapcore.ISO8601TimeEncoder,
+                EncodeDuration: zapcore.StringDurationEncoder,
+                EncodeCaller:   zapcore.ShortCallerEncoder,
+        }
+
+        // 함수 위치 표시 여부 설정
+        showCaller = showCallerInfo
+        if showCallerInfo </span><span class="cov0" title="0">{
+                encoderConfig.FunctionKey = "func"
+        }</span>
+
+        // 코어 설정
+        <span class="cov0" title="0">core := zapcore.NewCore(
+                zapcore.NewJSONEncoder(encoderConfig),
+                zapcore.AddSync(os.Stdout),
+                level,
+        )
+
+        // 로거 생성
+        logger = zap.New(core)
+        if showCallerInfo </span><span class="cov0" title="0">{
+                logger = logger.WithOptions(zap.AddCaller(), zap.AddCallerSkip(1))
+        }</span>
+}
+
+// GetLogger는 현재 로거 인스턴스를 반환합니다.
+func GetLogger() *zap.Logger <span class="cov0" title="0">{
+        loggerMu.RLock()
+        defer loggerMu.RUnlock()
+        return logger
+}</span>
+
+// Debug 로그 메시지를 출력합니다.
+func Debug(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Debug(msg, fields...)
+}</span>
+
+// Info 로그 메시지를 출력합니다.
+func Info(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Info(msg, fields...)
+}</span>
+
+// Warn 로그 메시지를 출력합니다.
+func Warn(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Warn(msg, fields...)
+}</span>
+
+// Error 로그 메시지를 출력합니다.
+func Error(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Error(msg, fields...)
+}</span>
+
+// DPanic 로그 메시지를 출력합니다. (개발 모드에서만 패닉)
+func DPanic(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.DPanic(msg, fields...)
+}</span>
+
+// Panic 로그 메시지를 출력하고 패닉을 발생시킵니다.
+func Panic(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Panic(msg, fields...)
+}</span>
+
+// Fatal 로그 메시지를 출력하고 프로그램을 종료합니다.
+func Fatal(msg string, fields ...zap.Field) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Fatal(msg, fields...)
+}</span>
+
+func Fatalf(format string, args ...interface{}) <span class="cov0" title="0">{
+        loggerMu.RLock()
+        l := logger
+        loggerMu.RUnlock()
+
+        l.Sugar().Fatalf(format, args...)
+}</span>
+
+// getCallerFunctionName은 호출자의 함수 이름을 반환합니다.
+func getCallerFunctionName() string <span class="cov0" title="0">{
+        // 호출 스택에서 2단계 위의 함수 정보를 가져옴 (1: 현재 함수, 2: 로그 함수, 3: 실제 호출자)
+        pc, _, _, ok := runtime.Caller(3)
+        if !ok </span><span class="cov0" title="0">{
+                return "unknown"
+        }</span>
+
+        // 함수 정보 가져오기
+        <span class="cov0" title="0">funcInfo := runtime.FuncForPC(pc)
+        if funcInfo == nil </span><span class="cov0" title="0">{
+                return "unknown"
+        }</span>
+
+        // 전체 함수 이름 (패키지 경로 포함)
+        <span class="cov0" title="0">fullName := funcInfo.Name()
+
+        // 패키지 경로와 함수 이름 분리
+        parts := strings.Split(fullName, ".")
+        if len(parts) &lt;= 1 </span><span class="cov0" title="0">{
+                return fullName
+        }</span>
+
+        // 마지막 부분이 함수 이름
+        <span class="cov0" title="0">funcName := parts[len(parts)-1]
+
+        // 패키지 이름 (마지막 부분)
+        pkgPath := strings.Join(parts[:len(parts)-1], ".")
+        pkgParts := strings.Split(pkgPath, "/")
+        pkgName := pkgParts[len(pkgParts)-1]
+
+        // 패키지명.함수명 형태로 반환
+        return pkgName + "." + funcName</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package nodestorage
+
+import (
+        "errors"
+        "fmt"
+
+        "go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+var (
+        // ErrNotFound is returned when a document is not found
+        ErrNotFound = errors.New("document not found")
+
+        // ErrVersionMismatch is returned when there's a version conflict during update
+        ErrVersionMismatch = errors.New("document version mismatch")
+
+        // ErrInvalidDocument is returned when a document is invalid
+        ErrInvalidDocument = errors.New("invalid document")
+
+        // ErrCacheMiss is returned when a document is not found in cache
+        ErrCacheMiss = errors.New("cache miss")
+
+        // ErrTimeout is returned when an operation times out
+        ErrTimeout = errors.New("operation timed out")
+
+        // ErrMaxRetriesExceeded is returned when max retries are exceeded
+        ErrMaxRetriesExceeded = errors.New("maximum retries exceeded")
+
+        // ErrClosed is returned when operating on a closed storage
+        ErrClosed = errors.New("storage is closed")
+
+        // ErrMissingVersionField is returned when the version field is not specified
+        ErrMissingVersionField = errors.New("version field is required in options")
+)
+
+// VersionError represents a version conflict error with details
+type VersionError struct {
+        CurrentVersion int64
+        StoredVersion  int64
+        DocumentID     primitive.ObjectID
+}
+
+// Error implements the error interface
+func (e *VersionError) Error() string <span class="cov8" title="1">{
+
+        return fmt.Sprintf("version conflict for document %s: current=%d, stored=%d",
+                e.DocumentID, e.CurrentVersion, e.StoredVersion)
+}</span>
+
+// Is checks if the error is of a specific type
+func (e *VersionError) Is(target error) bool <span class="cov8" title="1">{
+        return target == ErrVersionMismatch
+}</span>
+
+// Unwrap returns the underlying error
+func (e *VersionError) Unwrap() error <span class="cov8" title="1">{
+        return ErrVersionMismatch
+}</span>
+
+// NewVersionError creates a new version error
+func NewVersionError(docID primitive.ObjectID, current, stored int64) *VersionError <span class="cov8" title="1">{
+        return &amp;VersionError{
+                CurrentVersion: current,
+                StoredVersion:  stored,
+                DocumentID:     docID,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package main
+
+import (
+        "context"
+        "fmt"
+        "log"
+        "os"
+        "os/signal"
+        "strings"
+        "sync"
+        "syscall"
+        "time"
+
+        "go.mongodb.org/mongo-driver/bson/primitive"
+        "go.mongodb.org/mongo-driver/mongo"
+        "go.mongodb.org/mongo-driver/mongo/options"
+        "go.uber.org/zap"
+
+        "nodestorage"
+        "nodestorage/cache"
+        "nodestorage/core/nstlog"
+)
+
+// *UserInventory implements the Cachable interface
+type UserInventory struct {
+        UserID    string    `bson:"user_id" json:"user_id"`
+        Items     []Item    `bson:"items" json:"items"`
+        Gold      int       `bson:"gold" json:"gold"`
+        LastLogin time.Time `bson:"last_login" json:"last_login"`
+        Version_  int64     `bson:"version" json:"-"`
+}
+
+// Item represents an inventory item
+type Item struct {
+        ID       string    `bson:"id" json:"id"`
+        Name     string    `bson:"name" json:"name"`
+        Type     string    `bson:"type" json:"type"`
+        Quantity int       `bson:"quantity" json:"quantity"`
+        AddedAt  time.Time `bson:"added_at" json:"added_at"`
+}
+
+// Copy creates a deep copy of the inventory
+func (i *UserInventory) Copy() *UserInventory <span class="cov0" title="0">{
+        newInventory := &amp;UserInventory{
+                UserID:    i.UserID,
+                Gold:      i.Gold,
+                LastLogin: i.LastLogin,
+                Version_:  i.Version_,
+        }
+
+        // Deep copy items
+        newInventory.Items = make([]Item, len(i.Items))
+        for j, item := range i.Items </span><span class="cov0" title="0">{
+                newInventory.Items[j] = item
+        }</span>
+
+        <span class="cov0" title="0">return newInventory</span>
+}
+
+// Version gets or sets the version
+func (i *UserInventory) Version(v ...int64) int64 <span class="cov0" title="0">{
+        if len(v) &gt; 0 </span><span class="cov0" title="0">{
+                i.Version_ = v[0]
+        }</span>
+        <span class="cov0" title="0">return i.Version_</span>
+}
+
+func main() <span class="cov0" title="0">{
+        // 명령줄 인수 확인
+        runMultiSim := false
+        if len(os.Args) &gt; 1 &amp;&amp; os.Args[1] == "multi" </span><span class="cov0" title="0">{
+                runMultiSim = true
+        }</span>
+
+        // 여러 번의 시뮬레이션 실행
+        <span class="cov0" title="0">if runMultiSim </span><span class="cov0" title="0">{
+                runMultipleSimulations()
+                return
+        }</span>
+
+        // 단일 시뮬레이션 실행
+        <span class="cov0" title="0">nstlog.SetLogger(true, "debug")
+
+        // Create context with cancellation
+        ctx, cancel := context.WithCancel(context.Background())
+        defer cancel()
+
+        // Handle signals for graceful shutdown
+        sigChan := make(chan os.Signal, 1)
+        signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+        go func() </span><span class="cov0" title="0">{
+                &lt;-sigChan
+                fmt.Println("Shutting down...")
+                cancel()
+        }</span>()
+
+        <span class="cov0" title="0">client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017/?replicaSet=rs"))
+        if err != nil </span><span class="cov0" title="0">{
+                log.Fatalf("Failed to connect to MongoDB: %v", err)
+        }</span>
+
+        <span class="cov0" title="0">nstlog.Debug("Connected to MongoDB")
+
+        // 프로그램 종료 시 MongoDB 연결 종료
+        defer func() </span><span class="cov0" title="0">{
+                // MongoDB 연결 종료 (storage.Close()는 이미 defer로 호출되어 있음)
+                disconnectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+                defer cancel()
+
+                if err := client.Disconnect(disconnectCtx); err != nil </span><span class="cov0" title="0">{
+                        // 오류 메시지를 Fatal 대신 Warning으로 출력
+                        if !strings.Contains(err.Error(), "client is disconnected") </span><span class="cov0" title="0">{
+                                nstlog.Warn("Failed to disconnect from MongoDB", zap.Error(err))
+                        }</span>
+                }
+        }()
+
+        <span class="cov0" title="0">collection := client.Database("mydb").Collection("user_inventories")
+
+        // Create storage options
+        options := nodestorage.DefaultOptions()
+
+        // Create cache with options
+        cacheStorage := cache.NewMapCache[*UserInventory](
+                cache.WithMapMaxSize(10000),
+                cache.WithMapDefaultTTL(time.Hour),
+                cache.WithMapEvictionInterval(time.Minute*5),
+        )
+
+        // Alternatively, use BadgerDB cache
+        // cacheStorage, err := cache.NewBadgerCache[*UserInventory](
+        //         cache.WithBadgerPath("./badger-data"),
+        //         cache.WithBadgerDefaultTTL(time.Hour),
+        // )
+        // if err != nil {
+        //         log.Fatalf("Failed to create BadgerDB cache: %v", err)
+        // }
+
+        // Create storage
+        storage, err := nodestorage.NewStorage[*UserInventory](ctx, client, collection, cacheStorage, options)
+        if err != nil </span><span class="cov0" title="0">{
+                nstlog.Fatal("Failed to create storage", zap.Error(err))
+                return
+        }</span>
+        <span class="cov0" title="0">defer storage.Close()
+
+        // Create a user inventory
+        inventory := &amp;UserInventory{
+                UserID: "user123",
+                Items: []Item{
+                        {
+                                ID:       "item1",
+                                Name:     "Health Potion",
+                                Type:     "consumable",
+                                Quantity: 5,
+                                AddedAt:  time.Now(),
+                        },
+                },
+                Gold:      1000,
+                LastLogin: time.Now(),
+        }
+
+        // Create document
+        docID, err := storage.Create(ctx, inventory)
+        if err != nil </span><span class="cov0" title="0">{
+                nstlog.Fatal("Failed to create document", zap.Error(err))
+                return
+        }</span>
+        <span class="cov0" title="0">nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", docID.Hex()))
+
+        // Start multiple watchers to demonstrate individual channels
+        for i := 0; i &lt; 2; i++ </span><span class="cov0" title="0">{
+                watcherID := i + 1
+
+                // Create a new context for this watcher
+                watchCtx, watchCancel := context.WithCancel(ctx)
+                defer watchCancel()
+
+                // Start watching for changes
+                watchChan, err := storage.Watch(watchCtx)
+                if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Fatal("Failed to start watching", zap.Error(err))
+                        return
+                }</span>
+
+                // Handle watch events in a goroutine
+                <span class="cov0" title="0">go func(id int, ch &lt;-chan nodestorage.WatchEvent[*UserInventory]) </span><span class="cov0" title="0">{
+                        for event := range ch </span><span class="cov0" title="0">{
+                                nstlog.Debug("Watcher event", zap.Int("watcherID", id), zap.String("operation", event.Operation), zap.String("documentID", event.ID.Hex()))
+                                if event.Diff != nil </span><span class="cov0" title="0">{
+                                        nstlog.Debug("Watcher %d - Changes", zap.Int("watcherID", id), zap.Int("changes", len(event.Diff.Operations)))
+                                }</span>
+                        }
+                        <span class="cov0" title="0">nstlog.Debug("Watcher channel closed", zap.Int("watcherID", id))</span>
+                }(watcherID, watchChan)
+        }
+
+        // Simulate multiple nodes updating the same document
+        <span class="cov0" title="0">var wg sync.WaitGroup
+        for i := 0; i &lt; 10; i++ </span><span class="cov0" title="0">{
+                wg.Add(1)
+                nodeID := i + 1
+                go func(id int) </span><span class="cov0" title="0">{
+                        defer wg.Done()
+                        simulateNode(ctx, storage, docID, id)
+                }</span>(nodeID)
+        }
+
+        <span class="cov0" title="0">wg.Wait()
+        nstlog.Debug("All nodes completed")
+
+        // Get final document
+        finalInventory, err := storage.Get(ctx, docID)
+        if err != nil </span><span class="cov0" title="0">{
+                nstlog.Fatal("Failed to get document", zap.Error(err))
+                return
+        }</span>
+
+        <span class="cov0" title="0">nstlog.Debug("Final inventory", zap.Int("gold", finalInventory.Gold), zap.Int("items", len(finalInventory.Items)))
+        for _, item := range finalInventory.Items </span><span class="cov0" title="0">{
+                nstlog.Debug("Final inventory item", zap.String("itemName", item.Name), zap.Int("quantity", item.Quantity))
+        }</span>
+}
+
+// simulateNode simulates a node updating the document
+func simulateNode(ctx context.Context, storage nodestorage.Storage[*UserInventory], docID primitive.ObjectID, nodeID int) <span class="cov0" title="0">{
+        for i := nodeID; i &lt; nodeID+3; i++ </span><span class="cov0" title="0">{
+                // Add some delay to simulate real-world conditions
+                time.Sleep(time.Duration(100+nodeID*50) * time.Millisecond)
+
+                // Edit the document with options
+                updatedInventory, diff, err := storage.Edit(ctx, docID, func(inventory *UserInventory) (*UserInventory, error) </span><span class="cov0" title="0">{
+                        // Simulate different operations
+                        switch i % 3 </span>{
+                        case 0:<span class="cov0" title="0">
+                                // Add gold
+                                inventory.Gold += 100 * nodeID
+                                nstlog.Debug("Node %d : Added gold", zap.Int("nodeID", nodeID), zap.Int("gold", 100*nodeID))</span>
+
+                        case 1:<span class="cov0" title="0">
+                                // Add an item
+                                newItem := Item{
+                                        ID:       fmt.Sprintf("item%d-%d", nodeID, i),
+                                        Name:     fmt.Sprintf("Item from Node %d", nodeID),
+                                        Type:     "equipment",
+                                        Quantity: nodeID,
+                                        AddedAt:  time.Now(),
+                                }
+                                inventory.Items = append(inventory.Items, newItem)
+                                nstlog.Debug("Node %d : Added item", zap.Int("nodeID", nodeID), zap.String("itemName", newItem.Name))</span>
+
+                        case 2:<span class="cov0" title="0">
+                                // Update existing item if any
+                                if len(inventory.Items) &gt; 0 </span><span class="cov0" title="0">{
+                                        itemIdx := (nodeID + i) % len(inventory.Items)
+                                        inventory.Items[itemIdx].Quantity += nodeID
+
+                                        nstlog.Debug("Node %d : Updated item quantity", zap.Int("nodeID", nodeID), zap.Int("itemIdx", itemIdx), zap.Int("quantity", inventory.Items[itemIdx].Quantity))
+                                }</span>
+                        }
+
+                        // Update last login
+                        <span class="cov0" title="0">inventory.LastLogin = time.Now()
+
+                        // Return updated inventory
+                        return inventory, nil</span>
+                })
+
+                <span class="cov0" title="0">if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Debug("Node %d : Failed to edit document", zap.Int("nodeID", nodeID), zap.Error(err))
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">nstlog.Debug("Node %d : Successfully edited document",
+                        zap.Int("nodeID", nodeID),
+                        zap.Int64("version", updatedInventory.Version_),
+                        zap.Int("changes", len(diff.Operations)),
+                        zap.Int("currentGold", updatedInventory.Gold),
+                        zap.Int("i", i),
+                        zap.Int("i%3", i%3))</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package main
+
+import (
+        "context"
+        "fmt"
+        "log"
+        "os"
+        "os/signal"
+        "strings"
+        "sync"
+        "syscall"
+        "time"
+
+        "go.mongodb.org/mongo-driver/bson"
+        "go.mongodb.org/mongo-driver/bson/primitive"
+        "go.mongodb.org/mongo-driver/mongo"
+        "go.mongodb.org/mongo-driver/mongo/options"
+        "go.uber.org/zap"
+
+        "nodestorage"
+        "nodestorage/cache"
+        "nodestorage/core/nstlog"
+)
+
+// runMultipleSimulations runs multiple simulations and compares the results
+func runMultipleSimulations() <span class="cov0" title="0">{
+        // 로거 설정 - 함수 위치 표시 활성화
+        nstlog.SetLogger(true, "debug")
+
+        // Create context with cancellation
+        ctx, cancel := context.WithCancel(context.Background())
+        defer cancel()
+
+        // Handle signals for graceful shutdown
+        sigChan := make(chan os.Signal, 1)
+        signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+        go func() </span><span class="cov0" title="0">{
+                &lt;-sigChan
+                fmt.Println("Shutting down...")
+                cancel()
+        }</span>()
+
+        <span class="cov0" title="0">client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017/?replicaSet=rs"))
+        if err != nil </span><span class="cov0" title="0">{
+                log.Fatalf("Failed to connect to MongoDB: %v", err)
+        }</span>
+
+        <span class="cov0" title="0">nstlog.Debug("Connected to MongoDB")
+
+        // 프로그램 종료 시 MongoDB 연결 종료
+        defer func() </span><span class="cov0" title="0">{
+                // MongoDB 연결 종료
+                disconnectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+                defer cancel()
+
+                if err := client.Disconnect(disconnectCtx); err != nil </span><span class="cov0" title="0">{
+                        // 오류 메시지를 Fatal 대신 Warning으로 출력
+                        if !strings.Contains(err.Error(), "client is disconnected") </span><span class="cov0" title="0">{
+                                nstlog.Warn("Failed to disconnect from MongoDB", zap.Error(err))
+                        }</span>
+                }
+        }()
+
+        <span class="cov0" title="0">collection := client.Database("mydb").Collection("user_inventories")
+
+        // 여러 번의 시뮬레이션 실행
+        numSimulations := 3
+        results := make([]int, numSimulations)
+
+        for sim := 0; sim &lt; numSimulations; sim++ </span><span class="cov0" title="0">{
+                // 시뮬레이션 시작 메시지
+                nstlog.Info("Starting simulation", zap.Int("simulation", sim+1), zap.Int("total", numSimulations))
+
+                // 이전 데이터 삭제
+                _, err := collection.DeleteMany(ctx, bson.M{})
+                if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Fatal("Failed to clear collection", zap.Error(err))
+                        return
+                }</span>
+
+                // Create storage options
+                <span class="cov0" title="0">options := nodestorage.DefaultOptions()
+                options.VersionField = "version"
+
+                // Create cache with options
+                cacheStorage := cache.NewMapCache[*UserInventory](
+                        cache.WithMapMaxSize(10000),
+                        cache.WithMapDefaultTTL(time.Hour),
+                        cache.WithMapEvictionInterval(time.Minute*5),
+                )
+
+                // Create storage
+                storage, err := nodestorage.NewStorage[*UserInventory](ctx, client, collection, cacheStorage, options)
+                if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Fatal("Failed to create storage", zap.Error(err))
+                        return
+                }</span>
+
+                // Create a user inventory
+                <span class="cov0" title="0">inventory := &amp;UserInventory{
+                        UserID: fmt.Sprintf("user%d", sim+1),
+                        Items: []Item{
+                                {
+                                        ID:       "item1",
+                                        Name:     "Health Potion",
+                                        Type:     "consumable",
+                                        Quantity: 5,
+                                        AddedAt:  time.Now(),
+                                },
+                        },
+                        Gold:      1000,
+                        LastLogin: time.Now(),
+                }
+
+                // Create document
+                docID, err := storage.Create(ctx, inventory)
+                if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Fatal("Failed to create document", zap.Error(err))
+                        return
+                }</span>
+                <span class="cov0" title="0">nstlog.Debug("Created inventory", zap.String("userID", inventory.UserID), zap.String("docID", docID.String()))
+
+                // Start multiple watchers to demonstrate individual channels
+                var watchCancels []context.CancelFunc
+                for i := 0; i &lt; 2; i++ </span><span class="cov0" title="0">{
+                        watcherID := i + 1
+
+                        // Create a new context for this watcher
+                        watchCtx, watchCancel := context.WithCancel(ctx)
+                        watchCancels = append(watchCancels, watchCancel)
+
+                        // Start watching for changes
+                        watchChan, err := storage.Watch(watchCtx)
+                        if err != nil </span><span class="cov0" title="0">{
+                                nstlog.Fatal("Failed to start watching", zap.Error(err))
+                                return
+                        }</span>
+
+                        // Handle watch events in a goroutine
+                        <span class="cov0" title="0">go func(id int, ch &lt;-chan nodestorage.WatchEvent[*UserInventory]) </span><span class="cov0" title="0">{
+                                for event := range ch </span><span class="cov0" title="0">{
+                                        nstlog.Debug("Watcher event", zap.Int("watcherID", id), zap.String("operation", event.Operation), zap.String("documentID", event.ID.String()))
+                                        if event.Diff != nil </span><span class="cov0" title="0">{
+                                                nstlog.Debug("Watcher %d - Changes", zap.Int("watcherID", id), zap.Int("changes", len(event.Diff.Operations)))
+                                        }</span>
+                                }
+                                <span class="cov0" title="0">nstlog.Debug("Watcher channel closed", zap.Int("watcherID", id))</span>
+                        }(watcherID, watchChan)
+                }
+
+                // Simulate multiple nodes updating the same document
+                <span class="cov0" title="0">var wg sync.WaitGroup
+
+                // 노드 ID는 1부터 N까지 랜덤
+
+                for i := 0; i &lt; 10; i++ </span><span class="cov0" title="0">{
+                        wg.Add(1)
+                        nodeID := i + 1
+                        go func(id int) </span><span class="cov0" title="0">{
+                                defer wg.Done()
+                                simulateNodeMulti(ctx, storage, docID, id)
+                        }</span>(nodeID)
+                }
+
+                <span class="cov0" title="0">wg.Wait()
+                nstlog.Debug("All nodes completed", zap.Int("simulation", sim+1))
+
+                // Get final document
+                finalInventory, err := storage.Get(ctx, docID)
+                if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Fatal("Failed to get document", zap.Error(err))
+                        return
+                }</span>
+
+                // 결과 저장
+                <span class="cov0" title="0">results[sim] = finalInventory.Gold
+
+                nstlog.Info("Simulation completed",
+                        zap.Int("simulation", sim+1),
+                        zap.Int("gold", finalInventory.Gold),
+                        zap.Int("items", len(finalInventory.Items)))
+
+                for _, item := range finalInventory.Items </span><span class="cov0" title="0">{
+                        nstlog.Debug("Final inventory item", zap.String("itemName", item.Name), zap.Int("quantity", item.Quantity))
+                }</span>
+
+                // 워처 종료
+                <span class="cov0" title="0">for _, cancel := range watchCancels </span><span class="cov0" title="0">{
+                        cancel()
+                }</span>
+
+                // 스토리지 종료
+                <span class="cov0" title="0">storage.Close()
+
+                // 잠시 대기하여 리소스가 정리되도록 함
+                time.Sleep(500 * time.Millisecond)</span>
+        }
+
+        // 결과 비교
+        <span class="cov0" title="0">nstlog.Info("Simulation results summary")
+        allEqual := true
+        for i := 1; i &lt; len(results); i++ </span><span class="cov0" title="0">{
+                if results[i] != results[0] </span><span class="cov0" title="0">{
+                        allEqual = false
+                        break</span>
+                }
+        }
+
+        <span class="cov0" title="0">if allEqual </span><span class="cov0" title="0">{
+                nstlog.Info("All simulations produced the same gold amount", zap.Int("gold", results[0]))
+        }</span> else<span class="cov0" title="0"> {
+                nstlog.Warn("Simulations produced different gold amounts")
+                for i, gold := range results </span><span class="cov0" title="0">{
+                        nstlog.Info("Simulation result", zap.Int("simulation", i+1), zap.Int("gold", gold))
+                }</span>
+        }
+
+        // 예상 골드 계산
+        <span class="cov0" title="0">expectedGold := 1000 // 초기 골드
+        for i := 1; i &lt;= 10; i++ </span><span class="cov0" title="0">{
+                expectedGold += 100 * i
+        }</span>
+
+        <span class="cov0" title="0">nstlog.Info("Expected gold amount", zap.Int("expected", expectedGold))
+
+        // 모든 시뮬레이션이 예상 골드와 일치하는지 확인
+        allMatchExpected := true
+        for _, gold := range results </span><span class="cov0" title="0">{
+                if gold != expectedGold </span><span class="cov0" title="0">{
+                        allMatchExpected = false
+                        break</span>
+                }
+        }
+
+        <span class="cov0" title="0">if allMatchExpected </span><span class="cov0" title="0">{
+                nstlog.Info("All simulations match the expected gold amount")
+        }</span> else<span class="cov0" title="0"> {
+                nstlog.Warn("Some simulations do not match the expected gold amount")
+        }</span>
+}
+
+// simulateNodeMulti simulates a node updating the document
+func simulateNodeMulti(ctx context.Context, storage nodestorage.Storage[*UserInventory], docID primitive.ObjectID, nodeID int) <span class="cov0" title="0">{
+        nstlog.Debug("simulateNodeMulti called", zap.Int("nodeID", nodeID))
+
+        for i := nodeID; i &lt; nodeID+3; i++ </span><span class="cov0" title="0">{
+                // Add some delay to simulate real-world conditions
+                time.Sleep(time.Duration(100+nodeID*50) * time.Millisecond)
+
+                // Edit the document with options
+                nstlog.Debug("Node %d : Before Edit", zap.Int("nodeID", nodeID), zap.Int("i", i))
+                updatedInventory, diff, err := storage.Edit(ctx, docID, func(inventory *UserInventory) (*UserInventory, error) </span><span class="cov0" title="0">{
+                        // Simulate different operations
+                        nstlog.Debug("Node %d : Inside Edit", zap.Int("nodeID", nodeID), zap.Int("i", i), zap.Int("gold", inventory.Gold))
+                        switch i % 3 </span>{
+                        case 0:<span class="cov0" title="0">
+                                // Add gold
+                                inventory.Gold += 100 * nodeID
+                                nstlog.Debug("Node %d : Added gold", zap.Int("nodeID", nodeID), zap.Int("gold", 100*nodeID), zap.Int("newGold", inventory.Gold))</span>
+
+                        case 1:<span class="cov0" title="0">
+                                // Add an item
+                                newItem := Item{
+                                        ID:       fmt.Sprintf("item%d-%d", nodeID, i),
+                                        Name:     fmt.Sprintf("Item from Node %d", nodeID),
+                                        Type:     "equipment",
+                                        Quantity: nodeID,
+                                        AddedAt:  time.Now(),
+                                }
+                                inventory.Items = append(inventory.Items, newItem)
+                                nstlog.Debug("Node %d : Added item", zap.Int("nodeID", nodeID), zap.String("itemName", newItem.Name))</span>
+
+                        case 2:<span class="cov0" title="0">
+                                // Update existing item if any
+                                if len(inventory.Items) &gt; 0 </span><span class="cov0" title="0">{
+                                        itemIdx := (nodeID + i) % len(inventory.Items)
+                                        inventory.Items[itemIdx].Quantity += nodeID
+
+                                        nstlog.Debug("Node %d : Updated item quantity", zap.Int("nodeID", nodeID), zap.Int("itemIdx", itemIdx), zap.Int("quantity", inventory.Items[itemIdx].Quantity))
+                                }</span>
+                        }
+
+                        // Update last login
+                        <span class="cov0" title="0">inventory.LastLogin = time.Now()
+
+                        // Return updated inventory
+                        return inventory, nil</span>
+                })
+
+                <span class="cov0" title="0">if err != nil </span><span class="cov0" title="0">{
+                        nstlog.Debug("Node %d : Failed to edit document", zap.Int("nodeID", nodeID), zap.Error(err))
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">nstlog.Debug("Node %d : Successfully edited document",
+                        zap.Int("nodeID", nodeID),
+                        zap.Int64("version", updatedInventory.Version_),
+                        zap.Int("changes", len(diff.Operations)),
+                        zap.Int("currentGold", updatedInventory.Gold))</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package nodestorage
+
+import (
+        "time"
+
+        "go.mongodb.org/mongo-driver/bson"
+)
+
+// Options represents configuration options for the storage
+type Options struct {
+        // Concurrency control options
+        MaxRetries       int
+        RetryDelay       time.Duration
+        MaxRetryDelay    time.Duration
+        RetryJitter      float64 // Random jitter factor (0.0-1.0) to add to retry delay
+        OperationTimeout time.Duration
+        VersionField     string // Field name used for optimistic concurrency control
+
+        // Cache options
+        CacheTTL time.Duration
+
+        // Watch options
+        WatchEnabled      bool
+        WatchFilter       []bson.D // MongoDB change stream filter pipeline
+        WatchFullDocument string   // "updateLookup", "required", etc.
+        WatchMaxAwaitTime time.Duration
+        WatchBatchSize    int32
+}
+
+// DefaultOptions returns the default options
+func DefaultOptions() *Options <span class="cov8" title="1">{
+        return &amp;Options{
+                // Concurrency control defaults
+                MaxRetries:       0, // 0 means unlimited retries
+                RetryDelay:       time.Millisecond * 100,
+                MaxRetryDelay:    time.Second * 2,
+                RetryJitter:      0.1,
+                OperationTimeout: time.Second * 30,
+                VersionField:     "version",
+
+                // Cache defaults
+                CacheTTL: time.Hour * 24,
+
+                // Watch defaults
+                WatchEnabled: true,
+                WatchFilter: []bson.D{
+                        {{Key: "$match", Value: bson.D{{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}}}}},
+                },
+                WatchFullDocument: "updateLookup",
+                WatchMaxAwaitTime: time.Second * 1,
+                WatchBatchSize:    100,
+        }
+}</span>
+
+// EditOption is a function that configures EditOptions
+type EditOption func(*EditOptions)
+
+// EditOptions represents options for document editing
+type EditOptions struct {
+        // Optimistic concurrency control options
+        MaxRetries    int
+        RetryDelay    time.Duration
+        MaxRetryDelay time.Duration
+        RetryJitter   float64
+
+        // Operation timeout
+        Timeout time.Duration
+}
+
+// WithMaxRetries sets the maximum number of retries for optimistic concurrency control
+func WithMaxRetries(maxRetries int) EditOption <span class="cov8" title="1">{
+        return func(opts *EditOptions) </span><span class="cov8" title="1">{
+                opts.MaxRetries = maxRetries
+        }</span>
+}
+
+// WithRetryDelay sets the initial delay between retries
+func WithRetryDelay(delay time.Duration) EditOption <span class="cov8" title="1">{
+        return func(opts *EditOptions) </span><span class="cov8" title="1">{
+                opts.RetryDelay = delay
+        }</span>
+}
+
+// WithMaxRetryDelay sets the maximum delay between retries
+func WithMaxRetryDelay(maxDelay time.Duration) EditOption <span class="cov8" title="1">{
+        return func(opts *EditOptions) </span><span class="cov8" title="1">{
+                opts.MaxRetryDelay = maxDelay
+        }</span>
+}
+
+// WithRetryJitter sets the jitter factor for retry delays
+func WithRetryJitter(jitter float64) EditOption <span class="cov8" title="1">{
+        return func(opts *EditOptions) </span><span class="cov8" title="1">{
+                opts.RetryJitter = jitter
+        }</span>
+}
+
+// WithTimeout sets the operation timeout
+func WithTimeout(timeout time.Duration) EditOption <span class="cov8" title="1">{
+        return func(opts *EditOptions) </span><span class="cov8" title="1">{
+                opts.Timeout = timeout
+        }</span>
+}
+
+// NewEditOptions creates a new EditOptions with the given options applied
+func NewEditOptions(opts ...EditOption) *EditOptions <span class="cov8" title="1">{
+        // Default values
+        options := &amp;EditOptions{
+                MaxRetries:    0, // 0 means unlimited retries
+                RetryDelay:    time.Millisecond * 10,
+                MaxRetryDelay: time.Millisecond * 100,
+                RetryJitter:   0.1,
+                Timeout:       time.Second * 10,
+        }
+
+        // Apply options
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt(options)
+        }</span>
+
+        <span class="cov8" title="1">return options</span>
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package nodestorage
+
+import (
+        "context"
+        "errors"
+        "fmt"
+        "math"
+        "math/rand"
+        "nodestorage/cache"
+        "nodestorage/core/nstlog"
+        "sync"
+        "time"
+
+        "go.mongodb.org/mongo-driver/bson"
+        "go.mongodb.org/mongo-driver/bson/primitive"
+        "go.mongodb.org/mongo-driver/mongo"
+        "go.mongodb.org/mongo-driver/mongo/options"
+        "go.uber.org/zap"
+)
+
+// Cachable is an interface for objects that can be cached and versioned
+// T must be a pointer type to ensure proper modification
+type Cachable[T any] interface {
+        Copy() T                // Create a deep copy of the object
+        Version(...int64) int64 // Get or set the version (if argument is provided)
+}
+
+// Storage is the main storage interface with generic support
+type Storage[T Cachable[T]] interface {
+        // Get retrieves a document by ID
+        Get(ctx context.Context, id primitive.ObjectID) (T, error)
+
+        // GetByQuery retrieves documents using a query
+        GetByQuery(ctx context.Context, query interface{}) ([]T, error)
+
+        // Create creates a new document
+        Create(ctx context.Context, data T) (primitive.ObjectID, error)
+
+        // Edit edits a document with optimistic concurrency control
+        Edit(ctx context.Context, id primitive.ObjectID, editFn EditFunc[T], opts ...EditOption) (T, *Diff, error)
+
+        // Delete deletes a document
+        Delete(ctx context.Context, id primitive.ObjectID) error
+
+        // Watch watches for changes to documents
+        Watch(ctx context.Context) (&lt;-chan WatchEvent[T], error)
+
+        // Close closes the storage
+        Close() error
+
+        // GetCache returns the cache implementation
+        GetCache() cache.Cache[T]
+}
+
+// EditFunc is a function that edits a document
+type EditFunc[T Cachable[T]] func(doc T) (T, error)
+
+// WatchEvent represents a document change event
+type WatchEvent[T Cachable[T]] struct {
+        ID        primitive.ObjectID
+        Operation string // "create", "update", "delete"
+        Data      T
+        Diff      *Diff
+}
+
+// Diff represents the difference between two document versions
+type Diff struct {
+        Operations []Operation `json:"operations"`
+}
+
+// Operation represents a single change operation
+type Operation struct {
+        Type  string      `json:"type"`           // "add", "remove", "replace", "move", "copy", "test"
+        Path  string      `json:"path"`           // JSON pointer path
+        Value interface{} `json:"value"`          // New value for add/replace operations
+        From  string      `json:"from,omitempty"` // Source path for move/copy operations
+}
+
+// Subscriber represents a watch subscriber
+type Subscriber[T Cachable[T]] struct {
+        ID     int
+        Chan   chan WatchEvent[T]
+        Ctx    context.Context
+        Cancel context.CancelFunc
+}
+
+// StorageImpl implements the Storage interface
+type StorageImpl[T Cachable[T]] struct {
+        client      *mongo.Client
+        collection  *mongo.Collection
+        cache       cache.Cache[T]
+        options     *Options
+        ctx         context.Context
+        cancel      context.CancelFunc
+        closed      bool
+        closeMu     sync.Mutex
+        subscribers map[int]*Subscriber[T]
+        subMu       sync.RWMutex
+        nextSubID   int
+}
+
+// NewStorage creates a new storage instance
+func NewStorage[T Cachable[T]](ctx context.Context,
+        client *mongo.Client,
+        collection *mongo.Collection,
+        cacheImpl cache.Cache[T],
+        options *Options) (*StorageImpl[T], error) <span class="cov8" title="1">{
+        if options == nil </span><span class="cov0" title="0">{
+                options = DefaultOptions()
+        }</span>
+
+        // Validate required options
+        <span class="cov8" title="1">if options.VersionField == "" </span><span class="cov0" title="0">{
+                return nil, ErrMissingVersionField
+        }</span>
+
+        // Validate cache dependency
+        <span class="cov8" title="1">if cacheImpl == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("cache implementation is required")
+        }</span>
+
+        // Create context with cancel
+        <span class="cov8" title="1">storageCtx, cancel := context.WithCancel(ctx)
+
+        storage := &amp;StorageImpl[T]{
+                client:      client,
+                collection:  collection,
+                cache:       cacheImpl,
+                options:     options,
+                ctx:         storageCtx,
+                cancel:      cancel,
+                subscribers: make(map[int]*Subscriber[T]),
+                nextSubID:   1,
+        }
+
+        // Start watching for changes if enabled
+        if options.WatchEnabled </span><span class="cov8" title="1">{
+                if err := storage.startWatching(); err != nil </span><span class="cov8" title="1">{
+                        storage.Close()
+                        return nil, fmt.Errorf("failed to start watching: %w", err)
+                }</span>
+        }
+
+        <span class="cov8" title="1">return storage, nil</span>
+}
+
+// Get retrieves a document by ID
+func (s *StorageImpl[T]) Get(ctx context.Context, id primitive.ObjectID) (T, error) <span class="cov8" title="1">{
+        var result T
+
+        if s.closed </span><span class="cov8" title="1">{
+                return result, ErrClosed
+        }</span>
+
+        // Try to get from cache first
+        <span class="cov8" title="1">doc, err := s.cache.Get(ctx, id)
+        if err == nil </span><span class="cov8" title="1">{
+                return doc, nil
+        }</span>
+
+        // If not in cache, get from database
+        <span class="cov8" title="1">var dbDoc bson.M
+        err = s.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&amp;dbDoc)
+        if err != nil </span><span class="cov8" title="1">{
+                if errors.Is(err, mongo.ErrNoDocuments) </span><span class="cov8" title="1">{
+                        return result, ErrNotFound
+                }</span>
+                <span class="cov8" title="1">return result, fmt.Errorf("failed to get document: %w", err)</span>
+        }
+
+        // Extract data field
+        <span class="cov8" title="1">dataBytes, err := bson.Marshal(dbDoc)
+        if err != nil </span><span class="cov0" title="0">{
+                return result, fmt.Errorf("failed to marshal document: %w", err)
+        }</span>
+
+        // Deserialize document
+        <span class="cov8" title="1">if err := bson.Unmarshal(dataBytes, &amp;result); err != nil </span><span class="cov0" title="0">{
+                return result, fmt.Errorf("failed to unmarshal document: %w", err)
+        }</span>
+
+        // Store in cache
+        <span class="cov8" title="1">if err := s.cache.Set(ctx, id, result, s.options.CacheTTL); err != nil </span><span class="cov0" title="0">{
+                // Log error but continue
+                nstlog.Error("Failed to cache document", zap.Error(err), zap.String("id", id.Hex()))
+        }</span>
+
+        <span class="cov8" title="1">return result, nil</span>
+}
+
+// GetByQuery retrieves documents using a query
+func (s *StorageImpl[T]) GetByQuery(ctx context.Context, query interface{}) ([]T, error) <span class="cov8" title="1">{
+        if s.closed </span><span class="cov8" title="1">{
+                return nil, ErrClosed
+        }</span>
+
+        // Query can only be executed against the database
+        <span class="cov8" title="1">cursor, err := s.collection.Find(ctx, query)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to execute query: %w", err)
+        }</span>
+        <span class="cov8" title="1">defer cursor.Close(ctx)
+
+        var results []T
+        for cursor.Next(ctx) </span><span class="cov8" title="1">{
+                var dbDoc bson.M
+                if err := cursor.Decode(&amp;dbDoc); err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to decode document: %w", err)
+                }</span>
+
+                // Extract data field
+                <span class="cov8" title="1">dataBytes, err := bson.Marshal(dbDoc)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to marshal document: %w", err)
+                }</span>
+
+                // Deserialize document
+                <span class="cov8" title="1">var doc T
+                if err := bson.Unmarshal(dataBytes, &amp;doc); err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to unmarshal document: %w", err)
+                }</span>
+
+                <span class="cov8" title="1">results = append(results, doc)</span>
+        }
+
+        <span class="cov8" title="1">if err := cursor.Err(); err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("cursor error: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return results, nil</span>
+}
+
+// Create creates a new document
+func (s *StorageImpl[T]) Create(ctx context.Context, data T) (primitive.ObjectID, error) <span class="cov8" title="1">{
+        if s.closed </span><span class="cov8" title="1">{
+                return primitive.NilObjectID, ErrClosed
+        }</span>
+
+        // Initialize version to 1
+        <span class="cov8" title="1">data.Version(1)
+
+        // Insert into database
+        result, err := s.collection.InsertOne(ctx, data)
+        if err != nil </span><span class="cov0" title="0">{
+                if mongo.IsDuplicateKeyError(err) </span><span class="cov0" title="0">{
+                        return primitive.NilObjectID, fmt.Errorf("document already exists: %w", err)
+                }</span>
+                <span class="cov0" title="0">return primitive.NilObjectID, fmt.Errorf("failed to insert document: %w", err)</span>
+        }
+
+        <span class="cov8" title="1">id := result.InsertedID.(primitive.ObjectID)
+
+        // Store in cache
+        if err := s.cache.Set(ctx, id, data, s.options.CacheTTL); err != nil </span><span class="cov0" title="0">{
+                // 캐시 저장 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+                return id, fmt.Errorf("document created but failed to cache: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return id, nil</span>
+}
+
+// Edit edits a document with optimistic concurrency control
+func (s *StorageImpl[T]) Edit(ctx context.Context, id primitive.ObjectID, editFn EditFunc[T], options ...EditOption) (T, *Diff, error) <span class="cov8" title="1">{
+        var empty T
+
+        if s.closed </span><span class="cov8" title="1">{
+                return empty, nil, ErrClosed
+        }</span>
+
+        // Create options with defaults and apply provided options
+        <span class="cov8" title="1">opts := NewEditOptions(options...)
+
+        // Create context with timeout
+        timeoutCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+        defer cancel()
+
+        // Use the version field from storage options
+        versionField := s.options.VersionField // This should never be empty due to validation in NewStorage
+
+        var (
+                retries    int
+                retryDelay = opts.RetryDelay
+                lastErr    error
+        )
+
+        for opts.MaxRetries == 0 || retries &lt; opts.MaxRetries </span><span class="cov8" title="1">{
+                // Get the document
+                doc, err := s.Get(timeoutCtx, id)
+                if err != nil </span><span class="cov8" title="1">{
+                        return empty, nil, err
+                }</span>
+
+                // Get current version
+                <span class="cov8" title="1">currentVersion := doc.Version()
+
+                // Create a copy of the document for editing
+                docCopy := doc.Copy()
+
+                // Apply edit function to the document
+                updatedDoc, err := editFn(docCopy)
+                if err != nil </span><span class="cov8" title="1">{
+                        return empty, nil, fmt.Errorf("edit function failed: %w", err)
+                }</span>
+
+                // Increment version
+                <span class="cov8" title="1">newVersion := currentVersion + 1
+                updatedDoc.Version(newVersion)
+
+                // Generate diff
+                diff, err := generateDiff(doc, updatedDoc)
+                if err != nil </span><span class="cov0" title="0">{
+                        return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
+                }</span>
+
+                // Update in database with version check
+                <span class="cov8" title="1">result, err := s.collection.UpdateOne(
+                        timeoutCtx,
+                        bson.M{
+                                "_id":        id,
+                                versionField: currentVersion,
+                        },
+                        bson.M{
+                                "$set": updatedDoc,
+                        },
+                )
+
+                if err == nil &amp;&amp; result.MatchedCount &gt; 0 </span><span class="cov8" title="1">{
+                        // Update succeeded
+
+                        // Update cache
+                        if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil </span><span class="cov0" title="0">{
+                                // 캐시 업데이트 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+                                return updatedDoc, diff, fmt.Errorf("document updated but failed to update cache: %w", err)
+                        }</span>
+
+                        <span class="cov8" title="1">return updatedDoc, diff, nil</span>
+                }
+
+                // Update failed, check if it's a version conflict
+                <span class="cov8" title="1">if err == nil &amp;&amp; result.MatchedCount == 0 </span><span class="cov8" title="1">{
+                        // Version conflict, retry
+                        lastErr = ErrVersionMismatch
+                        retries++
+
+                        // Add jitter to retry delay
+                        jitter := float64(retryDelay) * opts.RetryJitter * (rand.Float64()*2 - 1)
+                        delay := time.Duration(float64(retryDelay) + jitter)
+
+                        // Exponential backoff with cap
+                        retryDelay = time.Duration(math.Min(
+                                float64(opts.MaxRetryDelay),
+                                float64(retryDelay)*2,
+                        ))
+
+                        // Wait before retrying
+                        select </span>{
+                        case &lt;-time.After(delay):<span class="cov8" title="1"></span>
+                                // Continue with retry
+                        case &lt;-timeoutCtx.Done():<span class="cov0" title="0">
+                                return empty, nil, fmt.Errorf("operation timed out: %w", timeoutCtx.Err())</span>
+                        }
+
+                        // Invalidate cache to get fresh data on next retry
+                        <span class="cov8" title="1">if err := s.cache.Delete(timeoutCtx, id); err != nil </span><span class="cov0" title="0">{
+                                // 캐시 무효화 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+                                return empty, nil, fmt.Errorf("failed to invalidate cache for retry: %w", err)
+                        }</span>
+
+                        <span class="cov8" title="1">continue</span>
+                }
+
+                // Other error, return immediately
+                <span class="cov0" title="0">if err != nil </span><span class="cov0" title="0">{
+                        return empty, nil, fmt.Errorf("failed to update document: %w", err)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return empty, nil, fmt.Errorf("maximum retries exceeded: %w", lastErr)</span>
+}
+
+// Delete deletes a document
+func (s *StorageImpl[T]) Delete(ctx context.Context, id primitive.ObjectID) error <span class="cov8" title="1">{
+        if s.closed </span><span class="cov8" title="1">{
+                return ErrClosed
+        }</span>
+
+        // Delete from database
+        <span class="cov8" title="1">_, err := s.collection.DeleteOne(ctx, bson.M{"_id": id})
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete document: %w", err)
+        }</span>
+
+        // Delete from cache
+        <span class="cov8" title="1">if err := s.cache.Delete(ctx, id); err != nil </span><span class="cov0" title="0">{
+                // 캐시 삭제 실패는 경고로 로그하고 반환하여 사용자가 인지할 수 있도록 함
+                return fmt.Errorf("document deleted from database but failed to delete from cache: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Watch watches for changes to documents
+func (s *StorageImpl[T]) Watch(ctx context.Context) (&lt;-chan WatchEvent[T], error) <span class="cov8" title="1">{
+        if s.closed </span><span class="cov8" title="1">{
+                return nil, ErrClosed
+        }</span>
+
+        // Create a new context with cancellation
+        <span class="cov8" title="1">subCtx, subCancel := context.WithCancel(ctx)
+
+        // Create a new channel for this subscriber
+        ch := make(chan WatchEvent[T], 100)
+
+        // Create a new subscriber
+        s.subMu.Lock()
+        subID := s.nextSubID
+        s.nextSubID++
+        sub := &amp;Subscriber[T]{
+                ID:     subID,
+                Chan:   ch,
+                Ctx:    subCtx,
+                Cancel: subCancel,
+        }
+        s.subscribers[subID] = sub
+        s.subMu.Unlock()
+
+        // Start a goroutine to clean up the subscriber when the context is done
+        go func() </span><span class="cov8" title="1">{
+                &lt;-ctx.Done()
+                s.removeSubscriber(subID)
+        }</span>()
+
+        <span class="cov8" title="1">return ch, nil</span>
+}
+
+// removeSubscriber removes a subscriber by ID
+func (s *StorageImpl[T]) removeSubscriber(id int) <span class="cov8" title="1">{
+        s.subMu.Lock()
+        defer s.subMu.Unlock()
+
+        if sub, ok := s.subscribers[id]; ok </span><span class="cov8" title="1">{
+                // Cancel the subscriber's context
+                sub.Cancel()
+
+                // Close the subscriber's channel
+                close(sub.Chan)
+
+                // Remove the subscriber from the map
+                delete(s.subscribers, id)
+        }</span>
+}
+
+// broadcastEvent broadcasts an event to all subscribers
+func (s *StorageImpl[T]) broadcastEvent(event WatchEvent[T]) <span class="cov8" title="1">{
+        s.subMu.RLock()
+        defer s.subMu.RUnlock()
+
+        for _, sub := range s.subscribers </span><span class="cov0" title="0">{
+                select </span>{
+                case sub.Chan &lt;- event:<span class="cov0" title="0"></span>
+                        // Event sent successfully
+                case &lt;-sub.Ctx.Done():<span class="cov0" title="0"></span>
+                        // Subscriber context is done, will be cleaned up separately
+                default:<span class="cov0" title="0">
+                        // Channel is full, skip this subscriber
+                        // 이 에러는 내부적으로 발생하므로 호출자에게 직접 반환할 수 없음
+                        // 대신 에러 채널을 통해 에러를 전달하는 방식을 고려할 수 있음
+                        nstlog.Error("Subscriber channel is full, skipping event",
+                                zap.Int("subscriber_id", sub.ID),
+                                zap.String("document_id", event.ID.Hex()),
+                                zap.String("operation", event.Operation))</span>
+                        // 향후 개선: 에러 채널을 통해 에러를 전달하는 방식 구현 고려
+                }
+        }
+}
+
+// GetCache returns the cache implementation
+func (s *StorageImpl[T]) GetCache() cache.Cache[T] <span class="cov0" title="0">{
+        return s.cache
+}</span>
+
+// Close closes the storage
+func (s *StorageImpl[T]) Close() error <span class="cov8" title="1">{
+        s.closeMu.Lock()
+        defer s.closeMu.Unlock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // 먼저 closed 플래그를 설정하여 에러 로깅을 방지
+        <span class="cov8" title="1">s.closed = true
+
+        // 컨텍스트 취소 (이로 인해 Change Stream이 종료됨)
+        s.cancel()
+
+        // 잠시 대기하여 Change Stream이 정상적으로 종료되도록 함
+        time.Sleep(100 * time.Millisecond)
+
+        // Close all subscriber channels
+        s.subMu.Lock()
+        for id, sub := range s.subscribers </span><span class="cov0" title="0">{
+                sub.Cancel()
+                close(sub.Chan)
+                delete(s.subscribers, id)
+        }</span>
+        <span class="cov8" title="1">s.subMu.Unlock()
+
+        // Note: We don't close the cache here as it was provided externally
+        // and might be shared with other components
+
+        // MongoDB 클라이언트는 외부에서 주입받았으므로 여기서 종료하지 않음
+        // 클라이언트 종료는 클라이언트를 생성한 쪽에서 담당해야 함
+
+        return nil</span>
+}
+
+// startWatching starts watching for changes
+func (s *StorageImpl[T]) startWatching() error <span class="cov8" title="1">{
+        // Configure change stream options
+
+        opts := options.ChangeStream()
+        if s.options.WatchFullDocument != "" </span><span class="cov8" title="1">{
+                switch s.options.WatchFullDocument </span>{
+                case "updateLookup":<span class="cov8" title="1">
+                        opts.SetFullDocument(options.UpdateLookup)</span>
+                case "required":<span class="cov0" title="0">
+                        opts.SetFullDocument(options.Required)</span>
+                }
+        } else<span class="cov0" title="0"> {
+                opts.SetFullDocument(options.UpdateLookup)
+        }</span>
+
+        <span class="cov8" title="1">if s.options.WatchMaxAwaitTime &gt; 0 </span><span class="cov8" title="1">{
+                opts.SetMaxAwaitTime(s.options.WatchMaxAwaitTime)
+        }</span>
+
+        <span class="cov8" title="1">if s.options.WatchBatchSize &gt; 0 </span><span class="cov8" title="1">{
+                opts.SetBatchSize(s.options.WatchBatchSize)
+        }</span>
+
+        // Create pipeline
+        <span class="cov8" title="1">var pipeline mongo.Pipeline
+        if len(s.options.WatchFilter) &gt; 0 </span><span class="cov8" title="1">{
+                pipeline = mongo.Pipeline(s.options.WatchFilter)
+        }</span> else<span class="cov0" title="0"> {
+                pipeline = mongo.Pipeline{
+                        bson.D{{Key: "$match", Value: bson.D{{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}}}}},
+                }
+        }</span>
+
+        // Create change stream
+        <span class="cov8" title="1">stream, err := s.collection.Watch(s.ctx, pipeline, opts)
+        if err != nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to create change stream: %w", err)
+        }</span>
+
+        // Note: We're using a dynamic approach to handle the version field
+        // so we don't need to explicitly reference s.options.VersionField here
+
+        // Start goroutine to handle database events
+        <span class="cov8" title="1">go func() </span><span class="cov8" title="1">{
+                defer stream.Close(context.Background())
+
+                for stream.Next(s.ctx) </span><span class="cov8" title="1">{
+                        // Create a dynamic event structure
+                        var rawEvent bson.M
+                        if err := stream.Decode(&amp;rawEvent); err != nil </span><span class="cov0" title="0">{
+                                // 디코딩 에러는 심각한 문제이므로 로그만 남기고 계속 진행
+                                // 이 에러는 스트림 내부에서 발생하므로 호출자에게 직접 반환할 수 없음
+                                nstlog.Error("Error decoding change stream event", zap.Error(err))
+                                continue</span>
+                        }
+
+                        // Extract operation type
+                        <span class="cov8" title="1">operationType, _ := rawEvent["operationType"].(string)
+
+                        // Extract document ID
+                        var docID primitive.ObjectID
+                        if docKey, ok := rawEvent["documentKey"].(bson.M); ok </span><span class="cov8" title="1">{
+                                if id, ok := docKey["_id"].(primitive.ObjectID); ok </span><span class="cov8" title="1">{
+                                        docID = id
+                                }</span>
+                        }
+
+                        // Extract document data
+                        <span class="cov8" title="1">var docData T
+                        if fullDoc, ok := rawEvent["fullDocument"].(bson.M); ok </span><span class="cov8" title="1">{
+                                // Convert to bytes and unmarshal
+                                dataBytes, err := bson.Marshal(fullDoc)
+                                if err == nil </span><span class="cov8" title="1">{
+                                        _ = bson.Unmarshal(dataBytes, &amp;docData)
+                                }</span>
+                        }
+
+                        // Map database operation to watch operation
+                        <span class="cov8" title="1">operation := operationType
+                        if operation == "insert" </span><span class="cov8" title="1">{
+                                operation = "create"
+                        }</span>
+
+                        // Create watch event
+                        <span class="cov8" title="1">watchEvent := WatchEvent[T]{
+                                ID:        docID,
+                                Operation: operation,
+                                Data:      docData,
+                        }
+
+                        // Broadcast event to all subscribers
+                        s.broadcastEvent(watchEvent)</span>
+                }
+
+                <span class="cov8" title="1">if err := stream.Err(); err != nil </span><span class="cov8" title="1">{
+                        // 컨텍스트 취소로 인한 오류는 정상적인 종료이므로 로그를 출력하지 않음
+                        // 이 에러는 스트림 내부에서 발생하므로 호출자에게 직접 반환할 수 없음
+                        // 대신 에러 채널을 통해 에러를 전달하는 방식을 고려할 수 있음
+                        if !s.closed &amp;&amp; !errors.Is(err, context.Canceled) </span><span class="cov0" title="0">{
+                                nstlog.Error("Change stream error", zap.Error(err))
+                                // 향후 개선: 에러 채널을 통해 에러를 전달하는 방식 구현 고려
+                        }</span>
+                }
+        }()
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// generateDiff generates a diff between two documents
+func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) <span class="cov8" title="1">{
+        // This is a simplified diff implementation
+        // In a real implementation, you would use a proper diff algorithm
+        // to generate more granular operations
+
+        // For now, we just create a simple replacement operation
+        return &amp;Diff{
+                Operations: []Operation{
+                        {
+                                Type:  "replace",
+                                Path:  "",
+                                Value: newDoc,
+                        },
+                },
+        }, nil
+}</span>
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

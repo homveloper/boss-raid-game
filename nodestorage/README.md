@@ -26,7 +26,7 @@ go get github.com/yourusername/nodestorage
 import (
     "context"
     "log"
-    
+
     "github.com/yourusername/nodestorage"
 )
 
@@ -37,14 +37,14 @@ func main() {
     options.MongoDatabase = "mydb"
     options.BadgerPath = "./badger-data"
     options.RedisAddr = "localhost:6379"
-    
+
     ctx := context.Background()
     storage, err := nodestorage.NewStorage(ctx, options)
     if err != nil {
         log.Fatalf("저장소 생성 실패: %v", err)
     }
     defer storage.Close()
-    
+
     // 이제 저장소를 사용할 수 있습니다
 }
 ```
@@ -97,7 +97,7 @@ profileBytes, _ := json.Marshal(profile)
 
 // 문서 저장
 docID := "user:" + profile.ID
-err = storage.Create(ctx, docID, profileBytes)
+err = storage.CreateAndGet(ctx, docID, profileBytes)
 if err != nil {
     log.Fatalf("문서 생성 실패: %v", err)
 }
@@ -109,11 +109,11 @@ updatedBytes, diff, err := storage.Edit(ctx, docID, func(docBytes []byte) ([]byt
     if err := json.Unmarshal(docBytes, &profile); err != nil {
         return nil, err
     }
-    
+
     // 프로필 수정
     profile.Username = "johndoe2"
     profile.LastSeen = time.Now()
-    
+
     // 수정된 프로필 직렬화
     return json.Marshal(profile)
 }, editOptions)
@@ -123,7 +123,8 @@ if err != nil {
 }
 
 // 변경 사항 확인
-fmt.Printf("변경 작업 수: %d\n", len(diff.Operations))
+fmt.Printf("JSON Patch: %v\n", diff.JSONPatch)
+fmt.Printf("Merge Patch: %s\n", string(diff.MergePatch))
 ```
 
 ### 변경 감시
@@ -140,7 +141,8 @@ go func() {
     for event := range watchChan {
         fmt.Printf("이벤트: %s %s\n", event.Operation, event.ID)
         if event.Diff != nil {
-            fmt.Printf("  변경 사항: %d 작업\n", len(event.Diff.Operations))
+            fmt.Printf("  JSON Patch: %v\n", event.Diff.JSONPatch)
+            fmt.Printf("  Merge Patch: %s\n", string(event.Diff.MergePatch))
         }
     }
 }()
