@@ -272,7 +272,9 @@ type HeroEvent struct {
    - 총 기여도: 기본 기여도 * (1 + 성급 보너스 + 레벨 보너스) * 희귀도 계수
 
 2. **지연 계산 방식의 업데이트**:
-   - 클라이언트 요청 시 마지막 업데이트 시간부터 현재까지의 시간 차이 계산
+   - 클라이언트에서 장수 변동 알림 수신 시 광산 장수 배치 최신화 요청
+   - A 서버의 인메모리 장수 데이터를 조회하여 최신 정보 반영
+   - 마지막 업데이트 시간부터 현재까지의 시간 차이 계산
    - 각 배치된 장수의 기여도 * 경과 시간(시간 단위)만큼 진행도 증가
    - 계산 결과를 데이터베이스에 저장하고 클라이언트에 반환
 
@@ -388,74 +390,68 @@ sequenceDiagram
     WebSocket-->>Client: 업데이트된 광산 정보 전송
 ```
 
-#### 6.2.3 장수 레벨/성급 향상 시 이벤트 기반 기여도 업데이트 시퀀스 다이어그램
+#### 6.2.3 장수 레벨/성급 향상 시 광산 장수 변동 이벤트 처리 시퀀스 다이어그램
 
 ```mermaid
 sequenceDiagram
     participant Client as 클라이언트
     participant WebSocket as 웹소켓 서버
-    participant UserHero as UserHeroService
-    participant EventBus as 이벤트 버스
-    participant GuildMine as GuildGoldMineService
+    participant UserHero as UserHeroService<br/>(A 서버 인메모리)
     participant UserEvent as UserEventService
-    participant HeroStorage as HeroStorage
     participant EventStorage as EventStorage
-    participant MineStorage as MineStorage
+    participant HeroStorage as HeroStorage
     participant MongoDB as MongoDB
-    participant EventDB as 이벤트 저장소
 
     %% 1. 장수 레벨업/성급 향상 처리
     Client->>WebSocket: 장수 레벨/성급 향상 요청
     WebSocket->>UserHero: 장수 업데이트 요청
 
-    UserHero->>HeroStorage: 장수 데이터 조회
-    HeroStorage->>MongoDB: 쿼리 실행
-    MongoDB-->>HeroStorage: 장수 데이터 반환
-    HeroStorage-->>UserHero: 장수 데이터 반환
-
+    UserHero->>UserHero: 인메모리 장수 데이터 조회
     UserHero->>UserHero: 레벨/성급 향상 처리
 
-    UserHero->>HeroStorage: 장수 데이터 업데이트
-    HeroStorage->>MongoDB: 업데이트 쿼리 실행
-    MongoDB-->>HeroStorage: 업데이트 결과 반환
-
-    %% 2. 이벤트 발행
-    UserHero->>EventBus: 장수 향상 이벤트 발행
-    Note over EventBus: HeroLevelUpEvent 또는<br/>HeroStarsIncreasedEvent
+    %% 2. 이벤트 예약 및 저장
+    UserHero->>UserEvent: 장수 변동 이벤트 예약
+    UserEvent->>EventStorage: 이벤트 예약 상태로 저장
+    EventStorage->>MongoDB: 이벤트 저장
+    MongoDB-->>EventStorage: 저장 성공
+    EventStorage-->>UserEvent: 예약 성공
+    UserEvent-->>UserHero: 예약 성공
 
     %% 3. 클라이언트에 응답
     UserHero-->>WebSocket: 장수 업데이트 결과 반환
     WebSocket-->>Client: 업데이트된 장수 정보 전송
 
-    %% 4. 이벤트 구독자들이 이벤트 처리
-    EventBus-->>UserEvent: 이벤트 전달
-    EventBus-->>GuildMine: 이벤트 전달
+    %% 4. 이벤트 확정 처리 (비동기)
+    UserHero->>UserEvent: 이벤트 확정 요청
+    UserEvent->>EventStorage: 이벤트 상태 업데이트 (예약→확정)
+    EventStorage->>MongoDB: 업데이트 쿼리 실행
+    MongoDB-->>EventStorage: 업데이트 결과 반환
 
-    %% 5. 이벤트 저장
-    UserEvent->>EventStorage: 이벤트 저장
-    EventStorage->>EventDB: 이벤트 데이터 저장
-    EventDB-->>EventStorage: 저장 결과 반환
+    %% 5. 주기적 DB 동기화 (백그라운드)
+    Note over UserHero: 주기적 DB 동기화
+    UserHero->>HeroStorage: 인메모리 장수 데이터 저장
+    HeroStorage->>MongoDB: 업데이트 쿼리 실행
+    MongoDB-->>HeroStorage: 업데이트 결과 반환
 
-    %% 6. 광산 서비스는 이벤트를 받아서 처리하지만 즉시 광산을 업데이트하지 않음
-    GuildMine->>GuildMine: 이벤트 수신 및 캐싱
+    %% 6. 클라이언트에 광산 장수 변동 알림
+    WebSocket-->>Client: 장수 변경 알림 전송
+    Note over Client: 광산 장수 배치 최신화 필요 감지
 ```
 
-#### 6.2.4 지연 계산 시 이벤트 기반 기여도 업데이트 시퀀스 다이어그램
+#### 6.2.4 광산 장수 배치 최신화 시퀀스 다이어그램
 
 ```mermaid
 sequenceDiagram
     participant Client as 클라이언트
     participant WebSocket as 웹소켓 서버
     participant GuildMine as GuildGoldMineService
-    participant EventStorage as EventStorage
+    participant HeroAPI as 장수 API<br/>(A 서버)
     participant MineStorage as MineStorage
-    participant HeroStorage as HeroStorage
     participant MongoDB as MongoDB
-    participant EventDB as 이벤트 저장소
 
-    %% 1. 광산 정보 요청
-    Client->>WebSocket: 광산 정보 요청
-    WebSocket->>GuildMine: 광산 조회 요청
+    %% 1. 클라이언트에서 광산 장수 배치 최신화 요청
+    Client->>WebSocket: 광산 장수 배치 최신화 요청
+    WebSocket->>GuildMine: 장수 배치 최신화 요청
 
     %% 2. 광산 데이터 조회
     GuildMine->>MineStorage: 광산 데이터 조회
@@ -463,36 +459,29 @@ sequenceDiagram
     MongoDB-->>MineStorage: 광산 데이터 반환
     MineStorage-->>GuildMine: 광산 데이터 반환
 
-    %% 3. 미처리된 이벤트 조회
-    GuildMine->>EventStorage: 마지막 업데이트 이후 발생한 이벤트 조회
-    EventStorage->>EventDB: 이벤트 쿼리 실행
-    EventDB-->>EventStorage: 이벤트 데이터 반환
-    EventStorage-->>GuildMine: 이벤트 목록 반환
+    %% 3. 배치된 장수 최신 데이터 조회
+    GuildMine->>HeroAPI: 배치된 장수 정보 요청
+    HeroAPI-->>GuildMine: 인메모리 최신 장수 데이터 반환
 
-    %% 4. 배치된 장수 정보 조회
-    GuildMine->>HeroStorage: 배치된 장수 정보 조회
-    HeroStorage->>MongoDB: 쿼리 실행
-    MongoDB-->>HeroStorage: 장수 데이터 반환
-    HeroStorage-->>GuildMine: 장수 데이터 반환
+    %% 4. 변경 감지 및 기여도 업데이트
+    Note over GuildMine: 핑거프린트 비교로 변경 감지
+    GuildMine->>GuildMine: 변경된 장수 기여도 재계산
 
-    %% 5. 지연 계산 수행
-    Note over GuildMine: 지연 계산 시작
-    GuildMine->>GuildMine: 마지막 업데이트부터<br/>현재까지 시간 계산
-    GuildMine->>GuildMine: 이벤트 기반 장수 기여도 계산<br/>(레벨/성급 변경 반영)
-    GuildMine->>GuildMine: 개발 진행도 계산
-
-    %% 6. 광산 데이터 업데이트
-    GuildMine->>MineStorage: 개발 진행도 업데이트
+    %% 5. 광산 데이터 업데이트
+    GuildMine->>MineStorage: 배치된 장수 정보 업데이트
     MineStorage->>MongoDB: 업데이트 쿼리 실행
     MongoDB-->>MineStorage: 업데이트 결과 반환
     MineStorage-->>GuildMine: 업데이트된 광산 데이터 반환
 
-    %% 7. 이벤트 처리 상태 업데이트
-    GuildMine->>EventStorage: 이벤트 처리 상태 업데이트
-    EventStorage->>EventDB: 업데이트 쿼리 실행
-    EventDB-->>EventStorage: 업데이트 결과 반환
+    %% 6. 개발 진행도 계산 및 업데이트
+    GuildMine->>GuildMine: 마지막 업데이트부터<br/>현재까지 시간 계산
+    GuildMine->>GuildMine: 개발 진행도 계산
 
-    %% 8. 클라이언트에 응답
+    GuildMine->>MineStorage: 개발 진행도 업데이트
+    MineStorage->>MongoDB: 업데이트 쿼리 실행
+    MongoDB-->>MineStorage: 업데이트 결과 반환
+
+    %% 7. 클라이언트에 응답
     GuildMine-->>WebSocket: 업데이트된 광산 정보 반환
     WebSocket-->>Client: 업데이트된 광산 정보 전송
 ```
@@ -628,17 +617,21 @@ sequenceDiagram
    - 타임스탬프 및 이벤트 ID를 통한 순서 관리
    - 순서가 중요한 이벤트의 경우 처리 순서 보장
 
-### 9.3 장수 레벨업/성급 향상 이벤트 처리 흐름
+### 9.3 장수 레벨업/성급 향상 및 광산 장수 배치 최신화 흐름
 
-1. **이벤트 발행**:
-   - UserHeroService에서 장수 레벨업/성급 향상 시 이벤트 발행
-   - 이벤트 버스를 통해 구독자에게 전달
+1. **장수 변동 이벤트 처리**:
+   - UserHeroService(A 서버 인메모리)에서 장수 레벨업/성급 향상 시 이벤트 예약
+   - UserEventService에서 이벤트를 예약 상태로 데이터베이스에 저장
+   - 요청 처리 완료 후 이벤트 확정 처리
+   - 클라이언트에 장수 변동 알림 전송
 
-2. **이벤트 저장**:
-   - UserEventService에서 이벤트를 데이터베이스에 저장
-   - 이벤트는 개인 단위로 처리되며 insert 위주의 연산
+2. **클라이언트 기반 광산 장수 배치 최신화**:
+   - 클라이언트에서 장수 변동 알림 수신 시 광산 장수 배치 최신화 요청
+   - GuildGoldMineService에서 A 서버 장수 API를 통해 최신 장수 데이터 조회
+   - 핑거프린트 비교로 변경 감지 및 기여도 재계산
+   - 광산 데이터 업데이트 및 개발 진행도 계산
 
-3. **지연 계산**:
-   - GuildGoldMineService에서 광산 정보 요청 시 관련 이벤트 조회
-   - 마지막 업데이트 이후 발생한 이벤트를 기반으로 기여도 재계산
-   - 계산 결과를 데이터베이스에 저장하고 이벤트 처리 상태 업데이트
+3. **지연 계산 방식**:
+   - 광산 장수 배치 최신화 시점에 마지막 업데이트 이후 경과 시간 계산
+   - 최신 장수 데이터 기반으로 개발 진행도 계산
+   - 계산 결과를 데이터베이스에 저장
