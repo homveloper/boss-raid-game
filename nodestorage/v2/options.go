@@ -95,6 +95,32 @@ type Options struct {
 	// DefaultTransactionOptions contains the default options for MongoDB transactions.
 	// These options are used when no specific options are provided to WithTransaction.
 	DefaultTransactionOptions *TransactionOptions
+
+	// Hot data watcher options
+
+	// HotDataWatcherEnabled determines whether to enable the hot data watcher.
+	// If true, the storage will track document access patterns and automatically
+	// watch frequently accessed documents for changes.
+	HotDataWatcherEnabled bool
+
+	// HotDataMaxItems is the maximum number of hot items to track.
+	// This limits the number of documents that will be actively watched.
+	HotDataMaxItems int
+
+	// HotDataDecayFactor is the factor to decay old access counts (0-1).
+	// A value closer to 1 gives more weight to historical access patterns,
+	// while a value closer to 0 gives more weight to recent access patterns.
+	HotDataDecayFactor float64
+
+	// HotDataWatchInterval is how often to update the watch list.
+	// This determines how frequently the hot data watcher will re-evaluate
+	// which documents should be watched based on access patterns.
+	HotDataWatchInterval time.Duration
+
+	// HotDataDecayInterval is how often to decay access scores.
+	// This determines how frequently historical access patterns will be
+	// downweighted in favor of more recent access patterns.
+	HotDataDecayInterval time.Duration
 }
 
 // TransactionOptions represents options for MongoDB transactions.
@@ -188,6 +214,13 @@ func DefaultOptions() *Options {
 			RetryWrites:    true,
 			RetryReads:     true,
 		},
+
+		// Hot data watcher defaults
+		HotDataWatcherEnabled: true,
+		HotDataMaxItems:       100,
+		HotDataDecayFactor:    0.95,
+		HotDataWatchInterval:  time.Minute * 5,
+		HotDataDecayInterval:  time.Hour,
 	}
 }
 

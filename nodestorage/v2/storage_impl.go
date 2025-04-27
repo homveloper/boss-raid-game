@@ -46,8 +46,9 @@ type StorageImpl[T Cachable[T]] struct {
 	subscribers    map[int]*Subscriber[T]
 	subMu          sync.RWMutex
 	nextSubID      int
-	versionField   string // Struct field name for version
-	versionBSONTag string // BSON tag name for version field
+	versionField   string                   // Struct field name for version
+	versionBSONTag string                   // BSON tag name for version field
+	hotDataWatcher *cache.HotDataWatcher[T] // Watcher for hot data
 }
 
 // NewStorage creates a new storage instance
@@ -95,6 +96,18 @@ func NewStorage[T Cachable[T]](
 		versionBSONTag: versionBSONTag,
 	}
 
+	// Initialize hot data watcher if enabled
+	if options.HotDataWatcherEnabled {
+		watcherOpts := &cache.HotDataWatcherOptions{
+			MaxHotItems:   options.HotDataMaxItems,
+			DecayFactor:   options.HotDataDecayFactor,
+			WatchInterval: options.HotDataWatchInterval,
+			DecayInterval: options.HotDataDecayInterval,
+			Logger:        core.GetLogger(),
+		}
+		storage.hotDataWatcher = cache.NewHotDataWatcher(storageCtx, collection, cacheImpl, watcherOpts)
+	}
+
 	// Start watching for changes if enabled
 	if options.WatchEnabled {
 		if err := storage.startWatching(); err != nil {
@@ -126,6 +139,10 @@ func (s *StorageImpl[T]) FindOne(
 	// Try to get from cache first
 	doc, err := s.cache.Get(ctx, id)
 	if err == nil {
+		// Record access for hot data tracking
+		if s.hotDataWatcher != nil {
+			s.hotDataWatcher.RecordAccess(id)
+		}
 		return doc, nil
 	}
 
@@ -161,6 +178,11 @@ func (s *StorageImpl[T]) FindOne(
 		core.Error("Failed to cache document",
 			zap.Error(err),
 			zap.String("id", id.Hex()))
+	}
+
+	// Record access for hot data tracking
+	if s.hotDataWatcher != nil {
+		s.hotDataWatcher.RecordAccess(id)
 	}
 
 	return result, nil
@@ -399,6 +421,12 @@ func (s *StorageImpl[T]) Close() error {
 		delete(s.subscribers, id)
 	}
 	s.subMu.Unlock()
+
+	// Close hot data watcher if enabled
+	if s.hotDataWatcher != nil {
+		s.hotDataWatcher.Close()
+		s.hotDataWatcher = nil
+	}
 
 	// Note: We don't close the cache here as it was provided externally
 	// and might be shared with other components

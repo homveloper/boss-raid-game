@@ -45,6 +45,8 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 	rand.Seed(time.Now().UnixNano())
 
 	// Setup MongoDB and storage
+	// We'll use the same storage instance for all tests
+	// HotDataWatcher will be enabled/disabled in the test configurations
 	storage, cleanup := setupBenchmarkStorage(b, "memory", 1000)
 	defer cleanup()
 
@@ -66,12 +68,13 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 
 	// Define a set of configurations to test
 	type Config struct {
-		Concurrency int
-		Timeout     int // milliseconds
-		MaxRetries  int
-		RetryDelay  int // milliseconds
-		Delay       DelayConfig
-		NumDocs     int // number of documents to create for the test
+		Concurrency           int
+		Timeout               int // milliseconds
+		MaxRetries            int
+		RetryDelay            int // milliseconds
+		Delay                 DelayConfig
+		NumDocs               int  // number of documents to create for the test
+		HotDataWatcherEnabled bool // whether to enable hot data watcher
 	}
 
 	configs := []Config{
@@ -87,7 +90,38 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 				ProcessingDelayMs:     10,
 				ProcessingDelayJitter: 5,
 			},
-			NumDocs: 1,
+			NumDocs:               1,
+			HotDataWatcherEnabled: false,
+		},
+		// With HotDataWatcher enabled
+		{
+			Concurrency: 1,
+			Timeout:     500,
+			MaxRetries:  0,
+			RetryDelay:  1,
+			Delay: DelayConfig{
+				NetworkLatencyMs:      20,
+				NetworkLatencyJitter:  10,
+				ProcessingDelayMs:     10,
+				ProcessingDelayJitter: 5,
+			},
+			NumDocs:               1,
+			HotDataWatcherEnabled: true,
+		},
+		// Test with more documents and HotDataWatcher enabled
+		{
+			Concurrency: 8,
+			Timeout:     500,
+			MaxRetries:  0,
+			RetryDelay:  1,
+			Delay: DelayConfig{
+				NetworkLatencyMs:      20,
+				NetworkLatencyJitter:  10,
+				ProcessingDelayMs:     10,
+				ProcessingDelayJitter: 5,
+			},
+			NumDocs:               50,
+			HotDataWatcherEnabled: true,
 		},
 		// {
 		// 	Concurrency: 4,
@@ -240,13 +274,24 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 	// Run benchmarks for each configuration
 	for _, cfg := range configs {
 		// Create a descriptive name for this test case
-		testName := fmt.Sprintf("C=%d/T=%dms/R=%d/D=%dms/Net=%dms/Proc=%dms/Docs=%d",
+		testName := fmt.Sprintf("C=%d/T=%dms/R=%d/D=%dms/Net=%dms/Proc=%dms/Docs=%d/HotWatch=%v",
 			cfg.Concurrency, cfg.Timeout, cfg.MaxRetries, cfg.RetryDelay,
-			cfg.Delay.NetworkLatencyMs, cfg.Delay.ProcessingDelayMs, cfg.NumDocs)
+			cfg.Delay.NetworkLatencyMs, cfg.Delay.ProcessingDelayMs, cfg.NumDocs,
+			cfg.HotDataWatcherEnabled)
 
 		b.Run(testName, func(b *testing.B) {
 			// Set parallelism level
 			b.SetParallelism(cfg.Concurrency)
+
+			// Create a new storage instance with the appropriate HotDataWatcher setting
+			testStorage, testCleanup := setupBenchmarkStorageWithOptions(b, "memory", 1000, cfg.HotDataWatcherEnabled)
+			defer testCleanup()
+
+			// Skip if storage setup failed
+			if testStorage == nil {
+				b.Skip("Failed to set up test storage")
+				return
+			}
 
 			// Create documents based on the configuration
 			var docIDs []primitive.ObjectID
@@ -259,7 +304,7 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 			for i := 0; i < cfg.NumDocs; i++ {
 				doc := createBenchDocument(1000)
 				doc.Name = fmt.Sprintf("Document %d", i)
-				result, err := storage.FindOneAndUpsert(initCtx, doc)
+				result, err := testStorage.FindOneAndUpsert(initCtx, doc)
 				if err != nil {
 					b.Fatalf("Failed to prepare document %d: %v", i, err)
 				}
@@ -269,7 +314,7 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 			// Reset all documents to a known state
 			for i, id := range docIDs {
 				// Use direct MongoDB update to avoid potential issues with our retry logic
-				_, err := storage.Collection().UpdateOne(
+				_, err := testStorage.Collection().UpdateOne(
 					initCtx,
 					bson.M{"_id": id},
 					bson.M{
@@ -341,7 +386,7 @@ func BenchmarkRealisticConcurrencyControl(b *testing.B) {
 					startTime := time.Now()
 
 					// Perform update with simulated processing delay
-					_, _, err := storage.FindOneAndUpdate(ctx, id, func(d *BenchDocument) (*BenchDocument, error) {
+					_, _, err := testStorage.FindOneAndUpdate(ctx, id, func(d *BenchDocument) (*BenchDocument, error) {
 						// Simulate processing delay
 						simulateProcessingDelay(
 							cfg.Delay.ProcessingDelayMs,

@@ -62,6 +62,11 @@ func SetLogger(logger *zap.Logger) {
 	Logger = logger
 }
 
+// GetLogger returns the global logger instance
+func GetLogger() *zap.Logger {
+	return Logger
+}
+
 // ConfigureLogger configures the global logger
 func ConfigureLogger(development bool, level string, outputPaths ...string) error {
 	var config zap.Config

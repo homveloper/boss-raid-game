@@ -106,8 +106,14 @@ func setupBenchmarkDB(b *testing.B) (*mongo.Client, *mongo.Collection, func()) {
 
 // setupBenchmarkStorage sets up a storage instance for benchmarking
 func setupBenchmarkStorage(b *testing.B, cacheType string, docSize int) (*StorageImpl[*BenchDocument], func()) {
+	return setupBenchmarkStorageWithOptions(b, cacheType, docSize, false)
+}
+
+// setupBenchmarkStorageWithOptions sets up a storage instance for benchmarking with additional options
+func setupBenchmarkStorageWithOptions(b *testing.B, cacheType string, docSize int, hotDataWatcherEnabled bool) (*StorageImpl[*BenchDocument], func()) {
 	// Add debug log
-	fmt.Printf("Setting up benchmark storage with cache type: %s, docSize: %d\n", cacheType, docSize)
+	fmt.Printf("Setting up benchmark storage with cache type: %s, docSize: %d, hotDataWatcherEnabled: %v\n",
+		cacheType, docSize, hotDataWatcherEnabled)
 
 	// Set up MongoDB
 	client, collection, dbCleanup := setupBenchmarkDB(b)
@@ -185,8 +191,12 @@ func setupBenchmarkStorage(b *testing.B, cacheType string, docSize int) (*Storag
 
 	// Create storage options
 	options := &Options{
-		VersionField: "VectorClock",
-		CacheTTL:     time.Hour,
+		VersionField:          "VectorClock",
+		CacheTTL:              time.Hour,
+		HotDataWatcherEnabled: hotDataWatcherEnabled,
+		HotDataMaxItems:       100,
+		HotDataWatchInterval:  time.Second * 5, // Shorter interval for benchmarks
+		HotDataDecayInterval:  time.Minute,
 	}
 
 	// Create storage
