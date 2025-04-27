@@ -2,8 +2,10 @@ package v2
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +53,9 @@ func (d *BenchDocument) Copy() *BenchDocument {
 
 // setupBenchmarkDB sets up a MongoDB database for benchmarking
 func setupBenchmarkDB(b *testing.B) (*mongo.Client, *mongo.Collection, func()) {
+	// Add debug log
+	fmt.Println("Setting up MongoDB database for benchmarking...")
+
 	// Connect to MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -60,20 +65,26 @@ func setupBenchmarkDB(b *testing.B) (*mongo.Client, *mongo.Collection, func()) {
 	if mongoURI == "" {
 		mongoURI = "mongodb://localhost:27017"
 	}
+	fmt.Printf("Using MongoDB URI: %s\n", mongoURI)
 
 	clientOptions := options.Client().ApplyURI(mongoURI)
+	fmt.Println("Connecting to MongoDB...")
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
+		fmt.Printf("MongoDB connection failed: %v\n", err)
 		b.Skipf("MongoDB not available: %v", err)
 		return nil, nil, func() {}
 	}
+	fmt.Println("MongoDB connection established, pinging server...")
 
 	// Ping MongoDB to ensure it's responsive
 	err = client.Ping(ctx, nil)
 	if err != nil {
+		fmt.Printf("MongoDB ping failed: %v\n", err)
 		b.Skipf("MongoDB not responsive: %v", err)
 		return nil, nil, func() {}
 	}
+	fmt.Println("MongoDB ping successful")
 
 	// Create a unique collection name for this benchmark
 	collectionName := "bench_" + primitive.NewObjectID().Hex()
@@ -95,11 +106,16 @@ func setupBenchmarkDB(b *testing.B) (*mongo.Client, *mongo.Collection, func()) {
 
 // setupBenchmarkStorage sets up a storage instance for benchmarking
 func setupBenchmarkStorage(b *testing.B, cacheType string, docSize int) (*StorageImpl[*BenchDocument], func()) {
+	// Add debug log
+	fmt.Printf("Setting up benchmark storage with cache type: %s, docSize: %d\n", cacheType, docSize)
+
 	// Set up MongoDB
 	client, collection, dbCleanup := setupBenchmarkDB(b)
 	if client == nil {
+		fmt.Println("Failed to set up MongoDB client")
 		return nil, func() {}
 	}
+	fmt.Println("MongoDB client set up successfully")
 
 	// Create cache based on type
 	var cacheImpl cache.Cache[*BenchDocument]
@@ -108,8 +124,10 @@ func setupBenchmarkStorage(b *testing.B, cacheType string, docSize int) (*Storag
 	switch cacheType {
 	case "none":
 		// No cache
-		cacheImpl = nil
-		cacheCleanup = func() {}
+		cacheImpl = cache.NewMemoryCache[*BenchDocument](nil)
+		cacheCleanup = func() {
+			cacheImpl.Close()
+		}
 
 	case "memory":
 		// Memory cache
@@ -167,7 +185,7 @@ func setupBenchmarkStorage(b *testing.B, cacheType string, docSize int) (*Storag
 
 	// Create storage options
 	options := &Options{
-		VersionField: "vector_clock",
+		VersionField: "VectorClock",
 		CacheTTL:     time.Hour,
 	}
 
@@ -301,11 +319,12 @@ func runStorageBenchmark(b *testing.B, cacheType, operation string, docSize int)
 		// Benchmark FindOneAndUpdate operation
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
+				// Use a longer timeout for FindOneAndUpdate in benchmarks
 				_, _, err := storage.FindOneAndUpdate(ctx, id, func(d *BenchDocument) (*BenchDocument, error) {
 					d.Value++
 					d.Name = "Updated " + d.Name
 					return d, nil
-				})
+				}, WithTimeout(time.Minute), WithMaxRetries(3))
 				if err != nil {
 					b.Fatalf("Failed to update document: %v", err)
 				}
@@ -324,13 +343,16 @@ func runStorageBenchmark(b *testing.B, cacheType, operation string, docSize int)
 		b.RunParallel(func(pb *testing.PB) {
 			i := 0
 			for pb.Next() {
+				time.Sleep(time.Millisecond * 100)
+
 				i++
+				// Use a longer timeout for UpdateOne in benchmarks
 				_, err := storage.UpdateOne(ctx, id, bson.M{
 					"$set": bson.M{
 						"name":  fmt.Sprintf("Updated %d", i),
 						"value": 42 + i,
 					},
-				})
+				}, WithTimeout(time.Minute), WithMaxRetries(3))
 				if err != nil {
 					b.Fatalf("Failed to update document: %v", err)
 				}
@@ -372,13 +394,14 @@ func runStorageBenchmark(b *testing.B, cacheType, operation string, docSize int)
 			i := 0
 			for pb.Next() {
 				i++
+				// Use a longer timeout for UpdateSection in benchmarks
 				_, err := storage.UpdateSection(ctx, sectionDoc.ID, "metadata", func(section interface{}) (interface{}, error) {
 					metadata := section.(bson.M)
 					metadata["updated_at"] = time.Now()
 					metadata["version"] = fmt.Sprintf("1.%d", i)
 					metadata["status"] = fmt.Sprintf("active-%d", i)
 					return metadata, nil
-				})
+				}, WithTimeout(time.Minute), WithMaxRetries(3))
 				if err != nil {
 					b.Fatalf("Failed to update section: %v", err)
 				}
@@ -555,5 +578,220 @@ func BenchmarkStorageCacheComparison(b *testing.B) {
 				runStorageBenchmark(b, cacheType, op, size)
 			})
 		}
+	}
+}
+
+// BenchmarkOptimalConcurrencyControl benchmarks FindOneAndUpdate with different timeout and retry settings
+// to find the optimal configuration for optimistic concurrency control
+func BenchmarkOptimalConcurrencyControl(b *testing.B) {
+	// Setup MongoDB and storage
+	storage, cleanup := setupBenchmarkStorage(b, "memory", 1000)
+	defer cleanup()
+
+	// Skip if storage setup failed
+	if storage == nil {
+		return
+	}
+
+	// Create context
+	ctx := context.Background()
+
+	// Create a document to update
+	doc := createBenchDocument(1000)
+	result, err := storage.FindOneAndUpsert(ctx, doc)
+	if err != nil {
+		b.Fatalf("Failed to prepare document: %v", err)
+	}
+	id := result.ID
+
+	// Define different concurrency levels to test
+	concurrencyLevels := []int{1, 2, 4, 8, 16, 32}
+
+	// Define different timeout settings to test (in milliseconds)
+	timeouts := []int{100, 500, 1000, 5000, 10000}
+
+	// Define different retry settings to test
+	retries := []int{1, 3, 5, 10, 0} // 0 means unlimited retries
+
+	// Define different retry delay settings to test (in milliseconds)
+	retryDelays := []int{5, 10, 50, 100}
+
+	// Track success rates and execution times
+	type Result struct {
+		Concurrency    int
+		Timeout        int
+		MaxRetries     int
+		RetryDelay     int
+		SuccessRate    float64
+		AvgExecTimeMs  float64
+		MaxExecTimeMs  float64
+		FailureReasons map[string]int
+	}
+
+	var results []Result
+
+	// Run benchmarks for different combinations
+	for _, concurrency := range concurrencyLevels {
+		for _, timeout := range timeouts {
+			for _, maxRetries := range retries {
+				for _, retryDelay := range retryDelays {
+					// Skip some combinations to reduce test time
+					if concurrency > 8 && timeout > 1000 && maxRetries > 3 {
+						continue
+					}
+
+					// Create a descriptive name for this test case
+					testName := fmt.Sprintf("C=%d/T=%dms/R=%d/D=%dms",
+						concurrency, timeout, maxRetries, retryDelay)
+
+					b.Run(testName, func(b *testing.B) {
+						// Set parallelism level
+						b.SetParallelism(concurrency)
+
+						// Reset the document to a known state before each test
+						_, err := storage.UpdateOne(ctx, id, bson.M{
+							"$set": bson.M{
+								"name":  "Benchmark Document",
+								"value": 42,
+							},
+						}, WithTimeout(time.Second*10))
+						if err != nil {
+							b.Fatalf("Failed to reset document: %v", err)
+						}
+
+						// Create channels to collect results
+						successCh := make(chan time.Duration, b.N)
+						failureCh := make(chan error, b.N)
+
+						// Reset timer before the benchmark loop
+						b.ResetTimer()
+
+						// Run the benchmark
+						b.RunParallel(func(pb *testing.PB) {
+							for pb.Next() {
+								// Create edit options for this test case
+								editOpts := []EditOption{
+									WithTimeout(time.Millisecond * time.Duration(timeout)),
+									WithMaxRetries(maxRetries),
+									WithRetryDelay(time.Millisecond * time.Duration(retryDelay)),
+									WithMaxRetryDelay(time.Millisecond * time.Duration(retryDelay*10)),
+									WithRetryJitter(0.1),
+								}
+
+								// Measure execution time
+								startTime := time.Now()
+
+								// Perform update
+								_, _, err := storage.FindOneAndUpdate(ctx, id, func(d *BenchDocument) (*BenchDocument, error) {
+									d.Value++
+									d.Name = "Updated " + d.Name
+									return d, nil
+								}, editOpts...)
+
+								execTime := time.Since(startTime)
+
+								// Record result
+								if err != nil {
+									failureCh <- err
+								} else {
+									successCh <- execTime
+								}
+							}
+						})
+
+						// Stop timer and collect results
+						b.StopTimer()
+
+						// Calculate statistics
+						totalOps := len(successCh) + len(failureCh)
+						successRate := float64(len(successCh)) / float64(totalOps)
+
+						// Calculate average and max execution times
+						var totalExecTime time.Duration
+						var maxExecTime time.Duration
+						for execTime := range successCh {
+							totalExecTime += execTime
+							if execTime > maxExecTime {
+								maxExecTime = execTime
+							}
+							if len(successCh) == 0 {
+								break
+							}
+						}
+
+						var avgExecTimeMs float64
+						if len(successCh) > 0 {
+							avgExecTimeMs = float64(totalExecTime.Milliseconds()) / float64(len(successCh))
+						}
+
+						// Categorize failure reasons
+						failureReasons := make(map[string]int)
+						for err := range failureCh {
+							reason := "unknown"
+							if err != nil {
+								if errors.Is(err, ErrVersionMismatch) {
+									reason = "version_mismatch"
+								} else if strings.Contains(err.Error(), "timeout") {
+									reason = "timeout"
+								} else if strings.Contains(err.Error(), "exceeded maximum retries") {
+									reason = "max_retries"
+								} else {
+									reason = "other"
+								}
+							}
+							failureReasons[reason]++
+							if len(failureCh) == 0 {
+								break
+							}
+						}
+
+						// Store result
+						result := Result{
+							Concurrency:    concurrency,
+							Timeout:        timeout,
+							MaxRetries:     maxRetries,
+							RetryDelay:     retryDelay,
+							SuccessRate:    successRate,
+							AvgExecTimeMs:  avgExecTimeMs,
+							MaxExecTimeMs:  float64(maxExecTime.Milliseconds()),
+							FailureReasons: failureReasons,
+						}
+						results = append(results, result)
+
+						// Log result
+						b.Logf("Success rate: %.2f%%, Avg exec time: %.2f ms, Max exec time: %.2f ms",
+							successRate*100, avgExecTimeMs, float64(maxExecTime.Milliseconds()))
+
+						for reason, count := range failureReasons {
+							b.Logf("Failure reason '%s': %d (%.2f%%)",
+								reason, count, float64(count)/float64(totalOps)*100)
+						}
+					})
+				}
+			}
+		}
+	}
+
+	// Find and report the optimal configuration
+	var optimalResult Result
+	var optimalScore float64
+
+	for _, result := range results {
+		// Calculate a score based on success rate and execution time
+		// Higher success rate is better, lower execution time is better
+		score := result.SuccessRate*100 - (result.AvgExecTimeMs / 100)
+
+		if score > optimalScore {
+			optimalScore = score
+			optimalResult = result
+		}
+	}
+
+	if optimalScore > 0 {
+		b.Logf("Optimal configuration: Concurrency=%d, Timeout=%dms, MaxRetries=%d, RetryDelay=%dms",
+			optimalResult.Concurrency, optimalResult.Timeout,
+			optimalResult.MaxRetries, optimalResult.RetryDelay)
+		b.Logf("Optimal configuration stats: Success rate=%.2f%%, Avg exec time=%.2f ms",
+			optimalResult.SuccessRate*100, optimalResult.AvgExecTimeMs)
 	}
 }

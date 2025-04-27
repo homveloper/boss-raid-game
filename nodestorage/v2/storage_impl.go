@@ -543,49 +543,124 @@ func (s *StorageImpl[T]) UpdateOne(
 	// Use the BSON tag name for MongoDB operations
 	versionBSONTag := s.versionBSONTag
 
-	// Get current version
-	doc, err := s.FindOne(timeoutCtx, id)
-	if err != nil {
-		return empty, err
-	}
+	// Initialize retry variables
+	var (
+		retries        = 0
+		maxRetries     = editOpts.MaxRetries
+		retryDelay     = time.Duration(editOpts.RetryDelay)
+		maxRetryDelay  = time.Duration(editOpts.MaxRetryDelay)
+		retryJitter    = editOpts.RetryJitter
+		updatedDoc     T
+		lastErr        error
+		currentVersion int64
+	)
 
-	currentVersion, err := getVersion(doc, versionField)
-	if err != nil {
-		return empty, fmt.Errorf("failed to get current version: %w", err)
-	}
+	// Retry loop
+	for {
+		// Check if we've exceeded max retries
+		if maxRetries > 0 && retries >= maxRetries {
+			return empty, fmt.Errorf("exceeded maximum retries (%d): %w", maxRetries, lastErr)
+		}
 
-	// Add version check to filter
-	filter := bson.M{
-		"_id":          id,
-		versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
-	}
+		// Check if context is done
+		if timeoutCtx.Err() != nil {
+			return empty, fmt.Errorf("operation timed out: %w", timeoutCtx.Err())
+		}
 
-	// Add version increment to update
-	if _, ok := update["$inc"]; !ok {
-		update["$inc"] = bson.M{}
-	}
-	update["$inc"].(bson.M)[versionBSONTag] = 1 // Use BSON tag name for MongoDB update
+		// Get current version (only on first attempt or after version mismatch)
+		if retries == 0 || lastErr == ErrVersionMismatch {
+			doc, err := s.FindOne(timeoutCtx, id)
+			if err != nil {
+				return empty, err
+			}
 
-	// Update in database with version check
-	result, err := s.collection.UpdateOne(timeoutCtx, filter, update)
+			currentVersion, err = getVersion(doc, versionField)
+			if err != nil {
+				return empty, fmt.Errorf("failed to get current version: %w", err)
+			}
+		}
 
-	if err != nil {
-		return empty, fmt.Errorf("failed to update document: %w", err)
-	}
+		// Add version check to filter
+		filter := bson.M{
+			"_id":          id,
+			versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
+		}
 
-	if result.MatchedCount == 0 {
-		return empty, ErrVersionMismatch
-	}
+		// Create a copy of the update to avoid modifying the original
+		updateCopy := bson.M{}
+		for k, v := range update {
+			updateCopy[k] = v
+		}
 
-	// Get updated document
-	updatedDoc, err := s.FindOne(timeoutCtx, id)
-	if err != nil {
-		return empty, fmt.Errorf("document updated but failed to retrieve: %w", err)
-	}
+		// Add version increment to update
+		if _, ok := updateCopy["$inc"]; !ok {
+			updateCopy["$inc"] = bson.M{}
+		}
+		updateCopy["$inc"].(bson.M)[versionBSONTag] = 1 // Use BSON tag name for MongoDB update
 
-	// Update cache
-	if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
-		return updatedDoc, fmt.Errorf("document updated but failed to update cache: %w", err)
+		// Use FindOneAndUpdate to get the updated document in a single operation
+		findOneAndUpdateOpts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+		// 직접 T 타입으로 디코딩
+		err := s.collection.FindOneAndUpdate(timeoutCtx, filter, updateCopy, findOneAndUpdateOpts).Decode(&updatedDoc)
+
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				// Version conflict, retry
+				lastErr = ErrVersionMismatch
+				retries++
+
+				// Calculate backoff delay with jitter
+				jitter := 1.0 + retryJitter*rand.Float64()
+				backoffDelay := time.Duration(float64(retryDelay) * jitter)
+				if backoffDelay > maxRetryDelay {
+					backoffDelay = maxRetryDelay
+				}
+
+				// Exponential backoff
+				retryDelay *= 2
+
+				// Wait before retrying
+				select {
+				case <-time.After(backoffDelay):
+					// Continue with retry
+					continue
+				case <-timeoutCtx.Done():
+					return empty, fmt.Errorf("operation timed out during retry: %w", timeoutCtx.Err())
+				}
+			}
+
+			// Other error, return immediately
+			lastErr = fmt.Errorf("failed to update document: %w", err)
+			retries++
+
+			// Calculate backoff delay with jitter
+			jitter := 1.0 + retryJitter*rand.Float64()
+			backoffDelay := time.Duration(float64(retryDelay) * jitter)
+			if backoffDelay > maxRetryDelay {
+				backoffDelay = maxRetryDelay
+			}
+
+			// Exponential backoff
+			retryDelay *= 2
+
+			// Wait before retrying
+			select {
+			case <-time.After(backoffDelay):
+				// Continue with retry
+				continue
+			case <-timeoutCtx.Done():
+				return empty, fmt.Errorf("operation timed out during retry: %w", timeoutCtx.Err())
+			}
+		}
+
+		// Update cache
+		if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+			return updatedDoc, fmt.Errorf("document updated but failed to update cache: %w", err)
+		}
+
+		// Success, break out of retry loop
+		break
 	}
 
 	return updatedDoc, nil
@@ -616,62 +691,105 @@ func (s *StorageImpl[T]) UpdateOneWithPipeline(
 	// Use the BSON tag name for MongoDB operations
 	versionBSONTag := s.versionBSONTag
 
-	// Get current version
-	doc, err := s.FindOne(timeoutCtx, id)
-	if err != nil {
-		return empty, err
-	}
+	// Initialize retry variables
+	var (
+		retries        = 0
+		maxRetries     = editOpts.MaxRetries
+		retryDelay     = time.Duration(editOpts.RetryDelay)
+		maxRetryDelay  = time.Duration(editOpts.MaxRetryDelay)
+		retryJitter    = editOpts.RetryJitter
+		updatedDoc     T
+		lastErr        error
+		currentVersion int64
+	)
 
-	currentVersion, err := getVersion(doc, versionField)
-	if err != nil {
-		return empty, fmt.Errorf("failed to get current version: %w", err)
-	}
-
-	// Create match stage for ID and version
-	matchStage := bson.D{
-		{Key: "$match", Value: bson.M{
-			"_id":          id,
-			versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
-		}},
-	}
-
-	// Add version increment stage
-	incStage := bson.D{
-		{Key: "$set", Value: bson.M{
-			versionBSONTag: bson.M{"$add": []interface{}{fmt.Sprintf("$%s", versionBSONTag), 1}}, // Use BSON tag name for MongoDB update
-		}},
-	}
-
-	// Combine stages
-	fullPipeline := mongo.Pipeline{matchStage, incStage}
-	fullPipeline = append(fullPipeline, pipeline...)
-
-	// Execute update with pipeline
-	updateOpts := options.FindOneAndUpdate().SetReturnDocument(options.After)
-	var result bson.M
-	err = s.collection.FindOneAndUpdate(timeoutCtx, bson.M{"_id": id}, fullPipeline, updateOpts).Decode(&result)
-
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return empty, ErrVersionMismatch
+	// Retry loop
+	for {
+		// Check if we've exceeded max retries
+		if maxRetries > 0 && retries >= maxRetries {
+			return empty, fmt.Errorf("exceeded maximum retries (%d): %w", maxRetries, lastErr)
 		}
-		return empty, fmt.Errorf("failed to update document: %w", err)
-	}
 
-	// Convert result to document
-	var updatedDoc T
-	resultBytes, err := bson.Marshal(result)
-	if err != nil {
-		return empty, fmt.Errorf("failed to marshal result: %w", err)
-	}
+		// Check if context is done
+		if timeoutCtx.Err() != nil {
+			return empty, fmt.Errorf("operation timed out: %w", timeoutCtx.Err())
+		}
 
-	if err := bson.Unmarshal(resultBytes, &updatedDoc); err != nil {
-		return empty, fmt.Errorf("failed to unmarshal result: %w", err)
-	}
+		// Get current version (only on first attempt or after version mismatch)
+		if retries == 0 || lastErr == ErrVersionMismatch {
+			doc, err := s.FindOne(timeoutCtx, id)
+			if err != nil {
+				return empty, err
+			}
 
-	// Update cache
-	if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
-		return updatedDoc, fmt.Errorf("document updated but failed to update cache: %w", err)
+			currentVersion, err = getVersion(doc, versionField)
+			if err != nil {
+				return empty, fmt.Errorf("failed to get current version: %w", err)
+			}
+		}
+
+		// Create match stage for ID and version
+		matchStage := bson.D{
+			{Key: "$match", Value: bson.M{
+				"_id":          id,
+				versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
+			}},
+		}
+
+		// Add version increment stage
+		incStage := bson.D{
+			{Key: "$set", Value: bson.M{
+				versionBSONTag: bson.M{"$add": []interface{}{fmt.Sprintf("$%s", versionBSONTag), 1}}, // Use BSON tag name for MongoDB update
+			}},
+		}
+
+		// Combine stages
+		fullPipeline := mongo.Pipeline{matchStage, incStage}
+		fullPipeline = append(fullPipeline, pipeline...)
+
+		// Execute update with pipeline
+		updateOpts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+		// 직접 T 타입으로 디코딩
+		err := s.collection.FindOneAndUpdate(timeoutCtx, bson.M{"_id": id}, fullPipeline, updateOpts).Decode(&updatedDoc)
+
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				// Version conflict, retry
+				lastErr = ErrVersionMismatch
+				retries++
+
+				// Calculate backoff delay with jitter
+				jitter := 1.0 + retryJitter*rand.Float64()
+				backoffDelay := time.Duration(float64(retryDelay) * jitter)
+				if backoffDelay > maxRetryDelay {
+					backoffDelay = maxRetryDelay
+				}
+
+				// Exponential backoff
+				retryDelay *= 2
+
+				// Wait before retrying
+				select {
+				case <-time.After(backoffDelay):
+					// Continue with retry
+					continue
+				case <-timeoutCtx.Done():
+					return empty, fmt.Errorf("operation timed out during retry: %w", timeoutCtx.Err())
+				}
+			}
+
+			// Other error, return immediately
+			return empty, fmt.Errorf("failed to update document: %w", err)
+		}
+
+		// Update cache
+		if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+			return updatedDoc, fmt.Errorf("document updated but failed to update cache: %w", err)
+		}
+
+		// Success, break out of retry loop
+		break
 	}
 
 	return updatedDoc, nil
@@ -698,114 +816,181 @@ func (s *StorageImpl[T]) UpdateSection(
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(editOpts.Timeout))
 	defer cancel()
 
-	// Extract section version field (using BSON tag name for MongoDB operations)
-	sectionVersionField := fmt.Sprintf("%s.%s", sectionPath, s.options.SectionVersionField)
+	// Initialize retry variables
+	var (
+		retries       = 0
+		maxRetries    = editOpts.MaxRetries
+		retryDelay    = time.Duration(editOpts.RetryDelay)
+		maxRetryDelay = time.Duration(editOpts.MaxRetryDelay)
+		retryJitter   = editOpts.RetryJitter
+		updatedDoc    T
+		lastErr       error
+	)
 
-	// Get current section version using MongoDB projection
-	var docResult bson.M
-	err := s.collection.FindOne(
-		timeoutCtx,
-		bson.M{"_id": id},
-		options.FindOne().SetProjection(bson.M{sectionVersionField: 1, sectionPath: 1}),
-	).Decode(&docResult)
-
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return empty, ErrNotFound
+	// Retry loop
+	for {
+		// Check if we've exceeded max retries
+		if maxRetries > 0 && retries >= maxRetries {
+			return empty, fmt.Errorf("exceeded maximum retries (%d): %w", maxRetries, lastErr)
 		}
-		return empty, fmt.Errorf("failed to get section version: %w", err)
-	}
 
-	// Extract current version and section data
-	var currentVersion int64 = 1
-	var sectionData interface{} = bson.M{}
+		// Check if context is done
+		if timeoutCtx.Err() != nil {
+			return empty, fmt.Errorf("operation timed out: %w", timeoutCtx.Err())
+		}
 
-	// Navigate through the document to find the section
-	parts := strings.Split(sectionPath, ".")
-	current := docResult
+		// Extract section version field (using BSON tag name for MongoDB operations)
+		sectionVersionField := fmt.Sprintf("%s.%s", sectionPath, s.options.SectionVersionField)
 
-	for i, part := range parts {
-		if i == len(parts)-1 {
-			// Last part - this is our section
-			if section, ok := current[part]; ok {
-				sectionData = section
+		// Get current section version using MongoDB projection
+		var docResult bson.M
+		err := s.collection.FindOne(
+			timeoutCtx,
+			bson.M{"_id": id},
+			options.FindOne().SetProjection(bson.M{sectionVersionField: 1, sectionPath: 1}),
+		).Decode(&docResult)
 
-				// Extract version if available
-				if sectionMap, ok := section.(bson.M); ok {
-					if version, ok := sectionMap[s.options.SectionVersionField]; ok {
-						if versionInt, ok := version.(int64); ok {
-							currentVersion = versionInt
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return empty, ErrNotFound
+			}
+			return empty, fmt.Errorf("failed to get section version: %w", err)
+		}
+
+		// Extract current version and section data
+		var currentVersion int64 = 1
+		var sectionData interface{} = bson.M{}
+
+		// Navigate through the document to find the section
+		parts := strings.Split(sectionPath, ".")
+		current := docResult
+
+		for i, part := range parts {
+			if i == len(parts)-1 {
+				// Last part - this is our section
+				if section, ok := current[part]; ok {
+					sectionData = section
+
+					// Extract version if available
+					if sectionMap, ok := section.(bson.M); ok {
+						if version, ok := sectionMap[s.options.SectionVersionField]; ok {
+							if versionInt, ok := version.(int64); ok {
+								currentVersion = versionInt
+							}
 						}
 					}
-				}
-			} else {
-				// Section doesn't exist yet, create it with default version
-				sectionData = bson.M{s.options.SectionVersionField: currentVersion}
-			}
-		} else {
-			// Navigate deeper
-			if next, ok := current[part]; ok {
-				if nextMap, ok := next.(bson.M); ok {
-					current = nextMap
 				} else {
-					return empty, fmt.Errorf("invalid path: %s is not an object", part)
+					// Section doesn't exist yet, create it with default version
+					sectionData = bson.M{s.options.SectionVersionField: currentVersion}
 				}
 			} else {
-				return empty, fmt.Errorf("invalid path: %s not found", part)
+				// Navigate deeper
+				if next, ok := current[part]; ok {
+					if nextMap, ok := next.(bson.M); ok {
+						current = nextMap
+					} else {
+						return empty, fmt.Errorf("invalid path: %s is not an object", part)
+					}
+				} else {
+					return empty, fmt.Errorf("invalid path: %s not found", part)
+				}
 			}
 		}
-	}
 
-	// Apply edit function to section
-	updatedSection, err := updateFn(sectionData)
-	if err != nil {
-		return empty, fmt.Errorf("edit function failed: %w", err)
-	}
+		// Apply edit function to section
+		updatedSection, err := updateFn(sectionData)
+		if err != nil {
+			return empty, fmt.Errorf("edit function failed: %w", err)
+		}
 
-	// Ensure section has a version field
-	updatedSectionMap, ok := updatedSection.(bson.M)
-	if !ok {
-		return empty, fmt.Errorf("updated section must be a map")
-	}
+		// Ensure section has a version field
+		updatedSectionMap, ok := updatedSection.(bson.M)
+		if !ok {
+			return empty, fmt.Errorf("updated section must be a map")
+		}
 
-	// Increment version
-	updatedSectionMap[s.options.SectionVersionField] = currentVersion + 1
+		// Increment version
+		updatedSectionMap[s.options.SectionVersionField] = currentVersion + 1
 
-	// Update in database with version check
-	update := bson.M{
-		"$set": bson.M{
-			sectionPath: updatedSectionMap,
-		},
-	}
+		// Update in database with version check
+		update := bson.M{
+			"$set": bson.M{
+				sectionPath: updatedSectionMap,
+			},
+		}
 
-	filter := bson.M{
-		"_id": id,
-	}
+		filter := bson.M{
+			"_id": id,
+		}
 
-	// Add version check if section exists
-	if currentVersion > 0 {
-		filter[sectionVersionField] = currentVersion
-	}
+		// Add version check if section exists
+		if currentVersion > 0 {
+			filter[sectionVersionField] = currentVersion
+		}
 
-	updateResult, err := s.collection.UpdateOne(timeoutCtx, filter, update)
+		// Use FindOneAndUpdate to get the updated document in a single operation
+		findOneAndUpdateOpts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
-	if err != nil {
-		return empty, fmt.Errorf("failed to update section: %w", err)
-	}
+		// 직접 T 타입으로 디코딩
+		err = s.collection.FindOneAndUpdate(timeoutCtx, filter, update, findOneAndUpdateOpts).Decode(&updatedDoc)
 
-	if updateResult.MatchedCount == 0 {
-		return empty, NewSectionVersionError(id, sectionPath, currentVersion, -1)
-	}
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				// Version conflict, retry
+				lastErr = NewSectionVersionError(id, sectionPath, currentVersion, -1)
+				retries++
 
-	// Get updated document
-	updatedDoc, err := s.FindOne(timeoutCtx, id)
-	if err != nil {
-		return empty, fmt.Errorf("section updated but failed to retrieve document: %w", err)
-	}
+				// Calculate backoff delay with jitter
+				jitter := 1.0 + retryJitter*rand.Float64()
+				backoffDelay := time.Duration(float64(retryDelay) * jitter)
+				if backoffDelay > maxRetryDelay {
+					backoffDelay = maxRetryDelay
+				}
 
-	// Update cache
-	if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
-		return updatedDoc, fmt.Errorf("section updated but failed to update cache: %w", err)
+				// Exponential backoff
+				retryDelay *= 2
+
+				// Wait before retrying
+				select {
+				case <-time.After(backoffDelay):
+					// Continue with retry
+					continue
+				case <-timeoutCtx.Done():
+					return empty, fmt.Errorf("operation timed out during retry: %w", timeoutCtx.Err())
+				}
+			}
+
+			// Other error, return immediately
+			lastErr = fmt.Errorf("failed to update section: %w", err)
+			retries++
+
+			// Calculate backoff delay with jitter
+			jitter := 1.0 + retryJitter*rand.Float64()
+			backoffDelay := time.Duration(float64(retryDelay) * jitter)
+			if backoffDelay > maxRetryDelay {
+				backoffDelay = maxRetryDelay
+			}
+
+			// Exponential backoff
+			retryDelay *= 2
+
+			// Wait before retrying
+			select {
+			case <-time.After(backoffDelay):
+				// Continue with retry
+				continue
+			case <-timeoutCtx.Done():
+				return empty, fmt.Errorf("operation timed out during retry: %w", timeoutCtx.Err())
+			}
+		}
+
+		// Update cache
+		if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+			return updatedDoc, fmt.Errorf("section updated but failed to update cache: %w", err)
+		}
+
+		// Success, break out of retry loop
+		break
 	}
 
 	return updatedDoc, nil

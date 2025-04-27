@@ -83,7 +83,7 @@ func setupTestStorage(t *testing.T) (*StorageImpl[*TestDocument], func()) {
 
 	// Create storage options
 	options := &Options{
-		VersionField: "vector_clock",
+		VersionField: "VectorClock",
 		CacheTTL:     time.Hour,
 	}
 
