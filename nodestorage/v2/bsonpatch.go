@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/jinzhu/copier"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.uber.org/zap"
 )
@@ -269,7 +270,9 @@ func processField(patch *BsonPatch, prefix, fieldName string, oldVal, newVal ref
 
 		if oldVal.IsNil() {
 			// Old is nil, new is not nil - set the new value
-			patch.Set[path] = newVal.Interface()
+			// 포인터 값을 복사하여 외부 수정으로부터 보호
+			newValCopy := deepCopyPointerValue(newVal)
+			patch.Set[path] = newValCopy
 			return
 		}
 
@@ -657,6 +660,24 @@ func isComparableType(t reflect.Type) bool {
 	default:
 		return false
 	}
+}
+
+// deepCopyPointerValue creates a deep copy of a pointer value to protect it from external modifications.
+func deepCopyPointerValue(v reflect.Value) interface{} {
+	if v.IsNil() {
+		return nil
+	}
+
+	// Create a new value of the same type as the original pointer
+	newValue := reflect.New(v.Type().Elem())
+
+	// Copy the value pointed to by the original pointer to the new value
+	if err := copier.CopyWithOption(newValue.Interface(), v.Elem().Interface(), copier.Option{DeepCopy: true}); err != nil {
+		// if copy failed use the original value
+		return v.Interface()
+	}
+
+	return newValue.Interface()
 }
 
 // isZeroValue checks if a reflect.Value is the zero value for its type.

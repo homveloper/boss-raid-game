@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
@@ -2327,6 +2328,320 @@ func TestBsonPatch_PointerFieldsFromNil(t *testing.T) {
 
 	require.NotNil(t, updatedDoc.StructMapPtr, "StructMapPtr가 nil입니다")
 	assert.Equal(t, len(*modified.StructMapPtr), len(*updatedDoc.StructMapPtr), "StructMapPtr 크기가 일치하지 않습니다")
+}
+
+// 포인터 필드 주소 비교 테스트 - nil에서 값으로 변경될 때 주소가 다른지 확인
+func TestBsonPatch_PointerAddressComparison(t *testing.T) {
+	// 포인터 필드를 포함한 간단한 구조체 정의
+	type SimplePointerDoc struct {
+		ID       primitive.ObjectID `bson:"_id"`
+		Name     string             `bson:"name"`
+		Version  int64              `bson:"version"`
+		IntPtr   *int               `bson:"intPtr"`
+		StrPtr   *string            `bson:"strPtr"`
+		BoolPtr  *bool              `bson:"boolPtr"`
+		SlicePtr *[]int             `bson:"slicePtr"`
+		MapPtr   *map[string]string `bson:"mapPtr"`
+	}
+
+	// 원본 문서 생성 (모든 포인터 필드가 nil)
+	original := &SimplePointerDoc{
+		ID:       primitive.NewObjectID(),
+		Name:     "Pointer Address Test",
+		Version:  1,
+		IntPtr:   nil,
+		StrPtr:   nil,
+		BoolPtr:  nil,
+		SlicePtr: nil,
+		MapPtr:   nil,
+	}
+
+	// 수정된 문서 생성 (모든 포인터 필드에 값 설정)
+	intVal := 42
+	strVal := "hello"
+	boolVal := true
+	sliceVal := []int{1, 2, 3}
+	mapVal := map[string]string{"key": "value"}
+
+	modified := &SimplePointerDoc{
+		ID:       original.ID,
+		Name:     "Updated Pointer Address Test",
+		Version:  2,
+		IntPtr:   &intVal,
+		StrPtr:   &strVal,
+		BoolPtr:  &boolVal,
+		SlicePtr: &sliceVal,
+		MapPtr:   &mapVal,
+	}
+
+	// 원본 포인터 주소 저장
+	intPtrAddr := fmt.Sprintf("%p", modified.IntPtr)
+	strPtrAddr := fmt.Sprintf("%p", modified.StrPtr)
+	boolPtrAddr := fmt.Sprintf("%p", modified.BoolPtr)
+	slicePtrAddr := fmt.Sprintf("%p", modified.SlicePtr)
+	mapPtrAddr := fmt.Sprintf("%p", modified.MapPtr)
+
+	t.Logf("원본 포인터 주소:")
+	t.Logf("IntPtr: %s", intPtrAddr)
+	t.Logf("StrPtr: %s", strPtrAddr)
+	t.Logf("BoolPtr: %s", boolPtrAddr)
+	t.Logf("SlicePtr: %s", slicePtrAddr)
+	t.Logf("MapPtr: %s", mapPtrAddr)
+
+	// BsonPatch 생성
+	patch, err := CreateBsonPatch(original, modified)
+	require.NoError(t, err, "패치 생성 중 오류 발생")
+	require.NotNil(t, patch, "생성된 패치가 nil입니다")
+
+	// 패치 내 포인터 주소 확인
+	intPtrPatch, ok := patch.Set["intPtr"].(*int)
+	require.True(t, ok, "intPtr가 *int 타입이 아닙니다")
+	intPtrPatchAddr := fmt.Sprintf("%p", intPtrPatch)
+	t.Logf("패치 내 IntPtr 주소: %s", intPtrPatchAddr)
+
+	strPtrPatch, ok := patch.Set["strPtr"].(*string)
+	require.True(t, ok, "strPtr가 *string 타입이 아닙니다")
+	strPtrPatchAddr := fmt.Sprintf("%p", strPtrPatch)
+	t.Logf("패치 내 StrPtr 주소: %s", strPtrPatchAddr)
+
+	boolPtrPatch, ok := patch.Set["boolPtr"].(*bool)
+	require.True(t, ok, "boolPtr가 *bool 타입이 아닙니다")
+	boolPtrPatchAddr := fmt.Sprintf("%p", boolPtrPatch)
+	t.Logf("패치 내 BoolPtr 주소: %s", boolPtrPatchAddr)
+
+	slicePtrPatch, ok := patch.Set["slicePtr"].(*[]int)
+	require.True(t, ok, "slicePtr가 *[]int 타입이 아닙니다")
+	slicePtrPatchAddr := fmt.Sprintf("%p", slicePtrPatch)
+	t.Logf("패치 내 SlicePtr 주소: %s", slicePtrPatchAddr)
+
+	mapPtrPatch, ok := patch.Set["mapPtr"].(*map[string]string)
+	require.True(t, ok, "mapPtr가 *map[string]string 타입이 아닙니다")
+	mapPtrPatchAddr := fmt.Sprintf("%p", mapPtrPatch)
+	t.Logf("패치 내 MapPtr 주소: %s", mapPtrPatchAddr)
+
+	// 주소 비교 - 모든 포인터 주소가 달라야 함
+	assert.NotEqual(t, intPtrAddr, intPtrPatchAddr, "IntPtr 주소가 동일합니다")
+	assert.NotEqual(t, strPtrAddr, strPtrPatchAddr, "StrPtr 주소가 동일합니다")
+	assert.NotEqual(t, boolPtrAddr, boolPtrPatchAddr, "BoolPtr 주소가 동일합니다")
+	assert.NotEqual(t, slicePtrAddr, slicePtrPatchAddr, "SlicePtr 주소가 동일합니다")
+	assert.NotEqual(t, mapPtrAddr, mapPtrPatchAddr, "MapPtr 주소가 동일합니다")
+
+	// 값 비교 - 값은 동일해야 함
+	assert.Equal(t, *modified.IntPtr, *intPtrPatch, "IntPtr 값이 다릅니다")
+	assert.Equal(t, *modified.StrPtr, *strPtrPatch, "StrPtr 값이 다릅니다")
+	assert.Equal(t, *modified.BoolPtr, *boolPtrPatch, "BoolPtr 값이 다릅니다")
+	assert.ElementsMatch(t, *modified.SlicePtr, *slicePtrPatch, "SlicePtr 값이 다릅니다")
+
+	// 맵 비교
+	assert.Equal(t, len(*modified.MapPtr), len(*mapPtrPatch), "MapPtr 크기가 다릅니다")
+	for k, v := range *modified.MapPtr {
+		val, ok := (*mapPtrPatch)[k]
+		assert.True(t, ok, "MapPtr에 키가 없습니다: "+k)
+		assert.Equal(t, v, val, "MapPtr 값이 다릅니다: "+k)
+	}
+
+	// 외부 수정 테스트 - 원본 값을 변경해도 패치 내 값은 변경되지 않아야 함
+	*modified.IntPtr = 99
+	*modified.StrPtr = "modified"
+	*modified.BoolPtr = false
+	(*modified.SlicePtr)[0] = 100
+	(*modified.MapPtr)["key"] = "modified"
+
+	// 패치 내 값은 변경되지 않아야 함
+	assert.Equal(t, 42, *intPtrPatch, "IntPtr 값이 외부 수정에 영향을 받았습니다")
+	assert.Equal(t, "hello", *strPtrPatch, "StrPtr 값이 외부 수정에 영향을 받았습니다")
+	assert.Equal(t, true, *boolPtrPatch, "BoolPtr 값이 외부 수정에 영향을 받았습니다")
+	assert.Equal(t, 1, (*slicePtrPatch)[0], "SlicePtr 값이 외부 수정에 영향을 받았습니다")
+	assert.Equal(t, "value", (*mapPtrPatch)["key"], "MapPtr 값이 외부 수정에 영향을 받았습니다")
+}
+
+// copier 패키지의 Copy 함수가 에러를 반환하는 경우를 테스트
+func TestCopierErrorCases(t *testing.T) {
+
+	t.Run("기본 타입 복사", func(t *testing.T) {
+		// 기본 타입 복사 - 성공 케이스
+		var src int = 42
+		var dst int
+		err := copier.Copy(&dst, src)
+		assert.NoError(t, err, "기본 타입 복사 중 에러 발생")
+		assert.Equal(t, src, dst, "복사된 값이 다릅니다")
+	})
+
+	t.Run("타입 불일치", func(t *testing.T) {
+		// 타입 불일치 - 에러 케이스
+		var src int = 42
+		var dst string
+		err := copier.Copy(&dst, src)
+		assert.Error(t, err, "타입 불일치에도 에러가 발생하지 않음")
+		t.Logf("타입 불일치 에러: %v", err)
+	})
+
+	t.Run("nil 대상", func(t *testing.T) {
+		// nil 대상 - 에러 케이스
+		var src int = 42
+		var dst *int = nil
+		err := copier.Copy(dst, src) // dst가 nil이므로 에러 발생 예상
+		assert.Error(t, err, "nil 대상에도 에러가 발생하지 않음")
+		t.Logf("nil 대상 에러: %v", err)
+	})
+
+	t.Run("비포인터 대상", func(t *testing.T) {
+		// 비포인터 대상 - 에러 케이스
+		var src int = 42
+		var dst int
+		err := copier.Copy(dst, src) // dst가 포인터가 아니므로 에러 발생 예상
+		assert.Error(t, err, "비포인터 대상에도 에러가 발생하지 않음")
+		t.Logf("비포인터 대상 에러: %v", err)
+	})
+
+	t.Run("구조체 복사", func(t *testing.T) {
+		// 구조체 복사 - 성공 케이스
+		type Person struct {
+			Name string
+			Age  int
+		}
+		src := Person{Name: "John", Age: 30}
+		var dst Person
+		err := copier.Copy(&dst, src)
+		assert.NoError(t, err, "구조체 복사 중 에러 발생")
+		assert.Equal(t, src, dst, "복사된 구조체가 다릅니다")
+	})
+
+	t.Run("구조체 필드 타입 불일치", func(t *testing.T) {
+		// 구조체 필드 타입 불일치 - 에러 케이스
+		type Person1 struct {
+			Name string
+			Age  int
+		}
+		type Person2 struct {
+			Name string
+			Age  string // 타입 불일치
+		}
+		src := Person1{Name: "John", Age: 30}
+		var dst Person2
+		err := copier.Copy(&dst, src)
+		// 필드 타입이 다르면 에러가 발생할 수 있음
+		if err != nil {
+			t.Logf("구조체 필드 타입 불일치 에러: %v", err)
+		} else {
+			t.Logf("구조체 필드 타입 불일치에도 에러가 발생하지 않음: dst=%+v", dst)
+		}
+	})
+
+	t.Run("비공개 필드", func(t *testing.T) {
+		// 비공개 필드 - 에러 케이스
+		type Person1 struct {
+			Name string
+			age  int // 비공개 필드
+		}
+		type Person2 struct {
+			Name string
+			Age  int
+		}
+		src := Person1{Name: "John", age: 30}
+		var dst Person2
+		err := copier.Copy(&dst, src)
+		// 비공개 필드는 복사되지 않지만 에러는 발생하지 않을 수 있음
+		assert.NoError(t, err, "비공개 필드 복사 중 에러 발생")
+		assert.Equal(t, "John", dst.Name, "Name 필드가 복사되지 않음")
+		assert.Equal(t, 0, dst.Age, "비공개 필드는 복사되지 않아야 함")
+	})
+
+	t.Run("중첩 구조체", func(t *testing.T) {
+		// 중첩 구조체 - 성공 케이스
+		type Address struct {
+			City  string
+			State string
+		}
+		type Person struct {
+			Name    string
+			Address Address
+		}
+		src := Person{Name: "John", Address: Address{City: "New York", State: "NY"}}
+		var dst Person
+		err := copier.Copy(&dst, src)
+		assert.NoError(t, err, "중첩 구조체 복사 중 에러 발생")
+		assert.Equal(t, src, dst, "복사된 중첩 구조체가 다릅니다")
+	})
+
+	t.Run("포인터 필드", func(t *testing.T) {
+		// 포인터 필드 - 성공 케이스
+		type Person struct {
+			Name *string
+			Age  *int
+		}
+		name := "John"
+		age := 30
+		src := Person{Name: &name, Age: &age}
+		var dst Person
+		err := copier.Copy(&dst, src)
+		assert.NoError(t, err, "포인터 필드 복사 중 에러 발생")
+		assert.NotNil(t, dst.Name, "Name 포인터가 nil입니다")
+		assert.NotNil(t, dst.Age, "Age 포인터가 nil입니다")
+		assert.Equal(t, *src.Name, *dst.Name, "Name 값이 다릅니다")
+		assert.Equal(t, *src.Age, *dst.Age, "Age 값이 다릅니다")
+		// 포인터 주소 비교 - 깊은 복사이므로 주소가 달라야 함
+		assert.NotEqual(t, fmt.Sprintf("%p", src.Name), fmt.Sprintf("%p", dst.Name), "Name 포인터 주소가 같습니다")
+		assert.NotEqual(t, fmt.Sprintf("%p", src.Age), fmt.Sprintf("%p", dst.Age), "Age 포인터 주소가 같습니다")
+	})
+
+	t.Run("인터페이스 필드", func(t *testing.T) {
+		// 인터페이스 필드 - 에러 케이스
+		type Person struct {
+			Name string
+			Data interface{}
+		}
+		src := Person{Name: "John", Data: map[string]interface{}{"key": "value"}}
+		var dst Person
+		err := copier.Copy(&dst, src)
+		// 인터페이스 필드는 복사가 제한적일 수 있음
+		if err != nil {
+			t.Logf("인터페이스 필드 복사 에러: %v", err)
+		} else {
+			t.Logf("인터페이스 필드 복사 결과: dst=%+v", dst)
+		}
+	})
+
+	t.Run("DeepCopy 옵션", func(t *testing.T) {
+		// DeepCopy 옵션 - 성공 케이스
+		type Person struct {
+			Name    string
+			Friends []string
+		}
+		src := Person{Name: "John", Friends: []string{"Alice", "Bob"}}
+		var dst Person
+		err := copier.CopyWithOption(&dst, src, copier.Option{DeepCopy: true})
+		assert.NoError(t, err, "DeepCopy 옵션 사용 중 에러 발생")
+		assert.Equal(t, src, dst, "복사된 구조체가 다릅니다")
+
+		// 원본 슬라이스 수정
+		src.Friends[0] = "Changed"
+		// 깊은 복사이므로 dst는 변경되지 않아야 함
+		assert.Equal(t, "Alice", dst.Friends[0], "깊은 복사가 제대로 되지 않았습니다")
+	})
+
+	t.Run("복사 불가능한 타입", func(t *testing.T) {
+		// 복사 불가능한 타입 - 에러 케이스
+		type Person struct {
+			Name string
+			Ch   chan int // 채널은 복사가 어려울 수 있음
+		}
+		src := Person{Name: "John", Ch: make(chan int)}
+		var dst Person
+		err := copier.Copy(&dst, src)
+		// 채널과 같은 특수 타입은 복사가 제한적일 수 있음
+		if err != nil {
+			t.Logf("복사 불가능한 타입 에러: %v", err)
+		} else {
+			t.Logf("복사 불가능한 타입 복사 결과: dst=%+v", dst)
+			// 채널이 복사되었는지 확인
+			if dst.Ch != nil {
+				t.Logf("채널이 복사되었습니다: %p", dst.Ch)
+			} else {
+				t.Logf("채널이 복사되지 않았습니다")
+			}
+		}
+	})
 }
 
 // 배열 필터를 사용한 업데이트 테스트
