@@ -15,6 +15,7 @@ import (
 	"nodestorage/v2/cache"
 	"nodestorage/v2/core"
 
+	jsonpatch "github.com/evanphx/json-patch"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -311,17 +312,135 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 			return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
 
+		// If there are no changes, return the original document copy without updating the database
+		if !diff.HasChanges {
+			// Reset version to original value since we're not updating
+			if err := setVersion(docCopy, versionField, currentVersion); err != nil {
+				return empty, nil, fmt.Errorf("failed to reset version: %w", err)
+			}
+			return docCopy, diff, nil
+		}
+
 		// Update in database with version check
-		result, err := s.collection.UpdateOne(
-			timeoutCtx,
-			bson.M{
-				"_id":          id,
-				versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
-			},
-			bson.M{
-				"$set": updatedDoc,
-			},
-		)
+		// If BsonPatchV2 or BsonPatch is available, use it for more efficient updates
+		var result *mongo.UpdateResult
+
+		if diff.BsonPatch != nil && !diff.BsonPatch.IsEmpty() {
+			// Fallback to BsonPatch if BsonPatchV2 is not available
+			// Create a copy of the BsonPatch to avoid modifying the original
+			updateDoc, marshalErr := diff.BsonPatch.MarshalBSON()
+			if marshalErr != nil {
+				return empty, nil, fmt.Errorf("failed to marshal BsonPatch: %w", marshalErr)
+			}
+
+			// Add version increment to update
+			var updateMap bson.M
+			if unmarshalErr := bson.Unmarshal(updateDoc, &updateMap); unmarshalErr != nil {
+				return empty, nil, fmt.Errorf("failed to unmarshal BsonPatch: %w", unmarshalErr)
+			}
+
+			// Add version increment
+			if _, ok := updateMap["$inc"]; !ok {
+				updateMap["$inc"] = bson.M{}
+			}
+			updateMap["$inc"].(bson.M)[versionBSONTag] = 1
+
+			// Check if we need to use array filters
+			arrayFilters := diff.BsonPatch.GetArrayFilters()
+
+			// Log array filters for debugging
+			if len(arrayFilters) > 0 {
+				core.Debug("Using array filters for update",
+					zap.Int("filterCount", len(arrayFilters)),
+					zap.String("id", id.Hex()))
+			}
+
+			if len(arrayFilters) > 0 {
+				// Use FindOneAndUpdate with array filters
+				updateOpts := options.FindOneAndUpdate().
+					SetReturnDocument(options.After).
+					SetArrayFilters(options.ArrayFilters{
+						Filters: arrayFilters,
+					})
+
+				// Execute update with array filters
+				err = s.collection.FindOneAndUpdate(
+					timeoutCtx,
+					bson.M{
+						"_id":          id,
+						versionBSONTag: currentVersion,
+					},
+					updateMap,
+					updateOpts,
+				).Decode(&updatedDoc)
+
+				if err == nil {
+					// Create a fake result for compatibility with the rest of the code
+					result = &mongo.UpdateResult{
+						MatchedCount:  1,
+						ModifiedCount: 1,
+					}
+				} else {
+					// 패치 기반 업데이트 실패 시 전체 문서로 다시 시도
+					core.Warn("FindOneAndUpdate with array filters failed, trying with full document",
+						zap.Error(err),
+						zap.String("id", id.Hex()))
+
+					// 전체 문서 업데이트로 다시 시도
+					result, err = s.collection.UpdateOne(
+						timeoutCtx,
+						bson.M{
+							"_id":          id,
+							versionBSONTag: currentVersion,
+						},
+						bson.M{
+							"$set": docCopy,
+						},
+					)
+				}
+			} else {
+				// Execute regular update with BsonPatch
+				result, err = s.collection.UpdateOne(
+					timeoutCtx,
+					bson.M{
+						"_id":          id,
+						versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
+					},
+					updateMap,
+				)
+
+				if err != nil {
+					// 패치 기반 업데이트 실패 시 전체 문서로 다시 시도
+					core.Warn("UpdateOne with BsonPatch failed, trying with full document",
+						zap.Error(err),
+						zap.String("id", id.Hex()))
+
+					// 전체 문서 업데이트로 다시 시도
+					result, err = s.collection.UpdateOne(
+						timeoutCtx,
+						bson.M{
+							"_id":          id,
+							versionBSONTag: currentVersion,
+						},
+						bson.M{
+							"$set": docCopy,
+						},
+					)
+				}
+			}
+		} else {
+			// Fallback to full document update
+			result, err = s.collection.UpdateOne(
+				timeoutCtx,
+				bson.M{
+					"_id":          id,
+					versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
+				},
+				bson.M{
+					"$set": updatedDoc,
+				},
+			)
+		}
 
 		if err == nil && result.MatchedCount > 0 {
 			// Update succeeded
@@ -471,11 +590,47 @@ func getDocumentID[T Cachable[T]](data T) (primitive.ObjectID, error) {
 
 // generateDiff generates a diff between two documents
 func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
-	// This is a placeholder implementation
-	// The actual implementation would generate a proper diff
+	// Convert documents to JSON for comparison
+	oldJSON, err := bson.Marshal(oldDoc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal old document: %w", err)
+	}
+
+	newJSON, err := bson.Marshal(newDoc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal new document: %w", err)
+	}
+
+	// Check if the documents are identical
+	hasChanges := string(oldJSON) != string(newJSON)
+
+	// If no changes, return a simple diff with HasChanges=false
+	if !hasChanges {
+		return &Diff{
+			HasChanges: false,
+			MergePatch: nil,
+			BsonPatch:  nil,
+		}, nil
+	}
+
+	// Generate JSON Merge Patch (RFC 7396)
+	mergePatch, err := jsonpatch.CreateMergePatch(oldJSON, newJSON)
+	if err != nil {
+		core.Warn("Failed to create JSON merge patch", zap.Error(err))
+	}
+
+	// Generate MongoDB BSON patch (original implementation)
+	bsonPatch, err := CreateBsonPatch(oldDoc, newDoc)
+	if err != nil {
+		core.Warn("Failed to create BSON patch", zap.Error(err))
+		// Continue even if BSON patch creation fails
+	}
+
+	// Create diff object with all patch formats
 	return &Diff{
-		JSONPatch:  nil, // Implement JSON patch generation
-		MergePatch: nil, // Implement merge patch generation
+		HasChanges: true,
+		MergePatch: mergePatch,
+		BsonPatch:  bsonPatch,
 	}, nil
 }
 

@@ -120,22 +120,28 @@ type WatchEvent[T Cachable[T]] struct {
 }
 
 // Diff represents the difference between two document versions.
-// It provides two different formats for representing the changes:
+// It provides multiple formats for representing the changes:
 //  1. JSONPatch: A sequence of operations to transform one document into another (RFC 6902)
 //  2. MergePatch: A partial document that can be merged with the original (RFC 7396)
+//  3. BsonPatch: A MongoDB update document with operators like $set, $unset, etc.
+//  4. BsonPatchV2: An optimized MongoDB update document generated using runtime analysis.
 //
 // These formats allow clients to efficiently apply changes to their local copies
-// without having to transfer the entire document.
+// without having to transfer the entire document, and also enable direct use with MongoDB operations.
 type Diff struct {
-	// JSONPatch contains operations according to RFC 6902 JSON Patch specification.
-	// This is typically an array of operations like add, remove, replace, move, copy, and test.
-	// The type is interface{} to accommodate different JSON patch implementations.
-	JSONPatch interface{} `json:"jsonPatch,omitempty"`
+	// HasChanges indicates whether there are any differences between the documents.
+	// If false, the documents are identical and no changes need to be applied.
+	HasChanges bool `json:"hasChanges"`
 
 	// MergePatch contains a partial document according to RFC 7396 JSON Merge Patch specification.
 	// This is a simpler alternative to JSONPatch where the patch is just the parts of the
 	// document that changed, with null values indicating deletions.
 	MergePatch []byte `json:"mergePatch,omitempty"`
+
+	// BsonPatch contains a MongoDB update document with operators like $set, $unset, etc.
+	// This can be directly used in MongoDB update operations.
+	// It implements the bson.Marshaler interface for seamless integration with MongoDB.
+	BsonPatch *BsonPatch `json:"bsonPatch,omitempty"`
 }
 
 // Storage is the main interface for document storage operations with generic support.
