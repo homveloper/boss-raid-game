@@ -7,7 +7,6 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // RedisCache implements the Cache interface using Redis
@@ -44,14 +43,14 @@ func NewRedisCache[T any](redisAddr string, options *CacheOptions) (*RedisCache[
 }
 
 // Get retrieves a document from the cache
-func (c *RedisCache[T]) Get(ctx context.Context, id primitive.ObjectID) (T, error) {
+func (c *RedisCache[T]) Get(ctx context.Context, key string) (T, error) {
 	var result T
 
 	// Create key from ID
-	key := c.getKey(id)
+	prefixkey := c.getKey(key)
 
 	// Get from Redis
-	data, err := c.client.Get(ctx, key).Bytes()
+	data, err := c.client.Get(ctx, prefixkey).Bytes()
 	if err != nil {
 		if err == redis.Nil {
 			return result, ErrCacheMiss
@@ -68,9 +67,9 @@ func (c *RedisCache[T]) Get(ctx context.Context, id primitive.ObjectID) (T, erro
 }
 
 // Set stores a document in the cache with an optional TTL
-func (c *RedisCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T, ttl time.Duration) error {
+func (c *RedisCache[T]) Set(ctx context.Context, key string, data T, ttl time.Duration) error {
 	// Create key from ID
-	key := c.getKey(id)
+	prefixkey := c.getKey(key)
 
 	// Marshal the data
 	bytes, err := bson.Marshal(data)
@@ -84,7 +83,7 @@ func (c *RedisCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T, 
 	}
 
 	// Set in Redis
-	if err := c.client.Set(ctx, key, bytes, ttl).Err(); err != nil {
+	if err := c.client.Set(ctx, prefixkey, bytes, ttl).Err(); err != nil {
 		return fmt.Errorf("failed to set in Redis: %w", err)
 	}
 
@@ -92,12 +91,12 @@ func (c *RedisCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T, 
 }
 
 // Delete removes a document from the cache
-func (c *RedisCache[T]) Delete(ctx context.Context, id primitive.ObjectID) error {
+func (c *RedisCache[T]) Delete(ctx context.Context, key string) error {
 	// Create key from ID
-	key := c.getKey(id)
+	prefixkey := c.getKey(key)
 
 	// Delete from Redis
-	if err := c.client.Del(ctx, key).Err(); err != nil {
+	if err := c.client.Del(ctx, prefixkey).Err(); err != nil {
 		return fmt.Errorf("failed to delete from Redis: %w", err)
 	}
 
@@ -129,8 +128,8 @@ func (c *RedisCache[T]) Close() error {
 }
 
 // Helper function to create a key from an ObjectID
-func (c *RedisCache[T]) getKey(id primitive.ObjectID) string {
-	return c.prefix + id.Hex()
+func (c *RedisCache[T]) getKey(key string) string {
+	return c.prefix + key
 }
 
 // RedisCacheOptions represents additional options for RedisCache

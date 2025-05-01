@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"nodestorage/v2"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,7 +15,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	v2 "nodestorage/v2"
 	"nodestorage/v2/cache"
 	"tictactoe/transport"
 )
@@ -75,37 +75,37 @@ func main() {
 	generalCache := cache.NewMemoryCache[*transport.General](nil)
 
 	// Create storage options
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name
 		CacheTTL:     time.Hour,
 	}
 
 	// Create storages
-	mineStorage, err := v2.NewStorage[*transport.Mine](ctx, client, mineCollection, mineCache, storageOptions)
+	mineStorage, err := nodestorage.NewStorage[*transport.Mine](ctx, client, mineCollection, mineCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create mine storage: %v", err)
 	}
 	defer mineStorage.Close()
 
-	mineConfigStorage, err := v2.NewStorage[*transport.MineConfig](ctx, client, mineConfigCollection, mineConfigCache, storageOptions)
+	mineConfigStorage, err := nodestorage.NewStorage[*transport.MineConfig](ctx, client, mineConfigCollection, mineConfigCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create mine config storage: %v", err)
 	}
 	defer mineConfigStorage.Close()
 
-	transportStorage, err := v2.NewStorage[*transport.Transport](ctx, client, transportCollection, transportCache, storageOptions)
+	transportStorage, err := nodestorage.NewStorage[*transport.Transport](ctx, client, transportCollection, transportCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create transport storage: %v", err)
 	}
 	defer transportStorage.Close()
 
-	ticketStorage, err := v2.NewStorage[*transport.TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
+	ticketStorage, err := nodestorage.NewStorage[*transport.TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create ticket storage: %v", err)
 	}
 	defer ticketStorage.Close()
 
-	generalStorage, err := v2.NewStorage[*transport.General](ctx, client, generalCollection, generalCache, storageOptions)
+	generalStorage, err := nodestorage.NewStorage[*transport.General](ctx, client, generalCollection, generalCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create general storage: %v", err)
 	}

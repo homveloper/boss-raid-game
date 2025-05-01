@@ -1,4 +1,4 @@
-package v2
+package nodestorage
 
 import (
 	"context"
@@ -15,8 +15,6 @@ import (
 
 // TestStorageWithMemoryCache tests the Storage implementation with memory cache
 func TestStorageWithMemoryCache(t *testing.T) {
-	// Skip this test until Storage implementation is complete
-	t.Skip("Skipping test until Storage implementation is complete")
 	// Set up test database
 	client, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
@@ -27,7 +25,7 @@ func TestStorageWithMemoryCache(t *testing.T) {
 
 	// Create storage options
 	options := &Options{
-		VersionField: "vector_clock",
+		VersionField: "VectorClock",
 		CacheTTL:     time.Hour,
 	}
 
@@ -89,8 +87,6 @@ func TestStorageWithMemoryCache(t *testing.T) {
 
 // TestStorageCacheTTL tests the TTL functionality of the cache in Storage
 func TestStorageCacheTTL(t *testing.T) {
-	// Skip this test until Storage implementation is complete
-	t.Skip("Skipping test until Storage implementation is complete")
 	// Set up test database
 	client, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
@@ -101,7 +97,7 @@ func TestStorageCacheTTL(t *testing.T) {
 
 	// Create storage options with short TTL
 	options := &Options{
-		VersionField: "vector_clock",
+		VersionField: "VectorClock",
 		CacheTTL:     100 * time.Millisecond, // Very short TTL for testing
 	}
 
@@ -138,8 +134,6 @@ func TestStorageCacheTTL(t *testing.T) {
 
 // TestStorageCacheConcurrency tests concurrent access to the storage with cache
 func TestStorageCacheConcurrency(t *testing.T) {
-	// Skip this test until Storage implementation is complete
-	t.Skip("Skipping test until Storage implementation is complete")
 	// Set up test database
 	client, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
@@ -150,7 +144,7 @@ func TestStorageCacheConcurrency(t *testing.T) {
 
 	// Create storage options
 	options := &Options{
-		VersionField: "vector_clock",
+		VersionField: "VectorClock",
 		CacheTTL:     time.Hour,
 	}
 
@@ -219,8 +213,6 @@ func TestStorageCacheConcurrency(t *testing.T) {
 
 // TestStorageCacheInvalidation tests that the cache is properly invalidated
 func TestStorageCacheInvalidation(t *testing.T) {
-	// Skip this test until Storage implementation is complete
-	t.Skip("Skipping test until Storage implementation is complete")
 	// Set up test database
 	client, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
@@ -231,7 +223,7 @@ func TestStorageCacheInvalidation(t *testing.T) {
 
 	// Create storage storageoptions
 	storageoptions := &Options{
-		VersionField: "vector_clock",
+		VersionField: "VectorClock",
 		CacheTTL:     time.Hour,
 	}
 

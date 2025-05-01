@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"nodestorage/v2/example/guild_territory"
+	"nodestorage/nodestorage/example/guild_territory"
 )
 
 func main() {

@@ -3,9 +3,8 @@ package transport
 import (
 	"context"
 	"fmt"
+	"nodestorage/v2"
 	"time"
-
-	v2 "nodestorage/v2"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -13,11 +12,11 @@ import (
 
 // TicketService provides operations for managing transport tickets
 type TicketService struct {
-	storage v2.Storage[*TransportTicket]
+	storage nodestorage.Storage[*TransportTicket]
 }
 
 // NewTicketService creates a new TicketService
-func NewTicketService(storage v2.Storage[*TransportTicket]) *TicketService {
+func NewTicketService(storage nodestorage.Storage[*TransportTicket]) *TicketService {
 	return &TicketService{
 		storage: storage,
 	}

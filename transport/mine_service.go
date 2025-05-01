@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	nodestorage "nodestorage/v2"
+	"nodestorage/v2"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

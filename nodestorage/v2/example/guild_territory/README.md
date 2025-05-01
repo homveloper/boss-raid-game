@@ -217,7 +217,7 @@ type Position struct {
 Create a new territory for a guild.
 
 ```go
-func CreateTerritory(ctx context.Context, storage v2.Storage[*Territory], guildID primitive.ObjectID, name string) (*Territory, error) {
+func CreateTerritory(ctx context.Context, storage nodestorage.Storage[*Territory], guildID primitive.ObjectID, name string) (*Territory, error) {
     territory := &Territory{
         ID:          primitive.NewObjectID(),
         GuildID:     guildID,
@@ -238,7 +238,7 @@ func CreateTerritory(ctx context.Context, storage v2.Storage[*Territory], guildI
 Plan a new building in the territory.
 
 ```go
-func PlanBuilding(ctx context.Context, storage v2.Storage[*Territory], territoryID primitive.ObjectID, buildingType BuildingType, position Position) (*Territory, error) {
+func PlanBuilding(ctx context.Context, storage nodestorage.Storage[*Territory], territoryID primitive.ObjectID, buildingType BuildingType, position Position) (*Territory, error) {
     return storage.FindOneAndUpdate(ctx, territoryID, func(territory *Territory) (*Territory, error) {
         // Check if position is valid and not occupied
         for _, building := range territory.Buildings {
@@ -280,7 +280,7 @@ func PlanBuilding(ctx context.Context, storage v2.Storage[*Territory], territory
 Contribute resources to a building under construction.
 
 ```go
-func ContributeToBuilding(ctx context.Context, storage v2.Storage[*Territory], territoryID primitive.ObjectID, buildingID primitive.ObjectID, memberID primitive.ObjectID, memberName string, resources Resources) (*Territory, error) {
+func ContributeToBuilding(ctx context.Context, storage nodestorage.Storage[*Territory], territoryID primitive.ObjectID, buildingID primitive.ObjectID, memberID primitive.ObjectID, memberName string, resources Resources) (*Territory, error) {
     return storage.UpdateSection(ctx, territoryID, fmt.Sprintf("buildings.%s", buildingID.Hex()), func(buildingInterface interface{}) (interface{}, error) {
         buildingMap, ok := buildingInterface.(bson.M)
         if !ok {
@@ -338,7 +338,7 @@ func ContributeToBuilding(ctx context.Context, storage v2.Storage[*Territory], t
 Get a territory with all its buildings.
 
 ```go
-func GetTerritory(ctx context.Context, storage v2.Storage[*Territory], territoryID primitive.ObjectID) (*Territory, error) {
+func GetTerritory(ctx context.Context, storage nodestorage.Storage[*Territory], territoryID primitive.ObjectID) (*Territory, error) {
     return storage.FindOne(ctx, territoryID)
 }
 ```
@@ -348,7 +348,7 @@ func GetTerritory(ctx context.Context, storage v2.Storage[*Territory], territory
 Watch for changes to a territory.
 
 ```go
-func WatchTerritory(ctx context.Context, storage v2.Storage[*Territory], territoryID primitive.ObjectID) (<-chan v2.WatchEvent[*Territory], error) {
+func WatchTerritory(ctx context.Context, storage nodestorage.Storage[*Territory], territoryID primitive.ObjectID) (<-chan v2.WatchEvent[*Territory], error) {
     pipeline := mongo.Pipeline{
         bson.D{{Key: "$match", Value: bson.D{
             {Key: "documentKey._id", Value: territoryID},
@@ -381,11 +381,11 @@ func main() {
     defer memCache.Close()
 
     // Create storage
-    storageOptions := &v2.Options{
+    storageOptions := &nodestorage.Options{
         VersionField: "vector_clock",
         CacheTTL:     time.Hour,
     }
-    storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+    storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
     if err != nil {
         log.Fatalf("Failed to create storage: %v", err)
     }

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	v2 "nodestorage/v2"
+	"nodestorage/v2"
 	"nodestorage/v2/cache"
 
 	"github.com/stretchr/testify/assert"
@@ -48,11 +48,11 @@ func TestTerritoryService_CreateTerritory(t *testing.T) {
 	// Create storage with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -86,11 +86,11 @@ func TestTerritoryService_PlanBuilding(t *testing.T) {
 	// Create storage with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -131,11 +131,11 @@ func TestTerritoryService_ContributeToBuilding(t *testing.T) {
 	// Create storage with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -232,11 +232,11 @@ func TestTerritoryService_UpgradeBuilding(t *testing.T) {
 	// Create storage with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -327,11 +327,11 @@ func TestTerritoryService_AddResources(t *testing.T) {
 	// Create storage with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 

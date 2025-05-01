@@ -1,4 +1,4 @@
-package v2
+package nodestorage
 
 import (
 	"time"
@@ -12,11 +12,11 @@ import (
 //
 // The options can be provided when creating a new storage instance:
 //
-//	options := &v2.Options{
+//	options := &nodestorage.Options{
 //	    VersionField: "vector_clock",
 //	    CacheTTL:     time.Hour,
 //	}
-//	storage, err := v2.NewStorage[*Document](ctx, client, collection, cache, options)
+//	storage, err := nodestorage.NewStorage[*Document](ctx, client, collection, cache, options)
 type Options struct {
 	// Concurrency control options
 

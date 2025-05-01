@@ -4,14 +4,13 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // CacheItem represents an item in the memory cache
 type CacheItem[T any] struct {
-	Data      T
-	ExpiresAt time.Time
+	Data       T
+	ExpiresAt  time.Time
+	LastAccess time.Time // 마지막 접근 시간 추가
 }
 
 // MemoryCache implements the Cache interface using in-memory storage
@@ -41,11 +40,11 @@ func NewMemoryCache[T any](options *CacheOptions) *MemoryCache[T] {
 }
 
 // Get retrieves a document from the cache
-func (c *MemoryCache[T]) Get(ctx context.Context, id primitive.ObjectID) (T, error) {
+func (c *MemoryCache[T]) Get(ctx context.Context, key string) (T, error) {
 	var empty T
 
 	c.mu.RLock()
-	item, ok := c.items[id.Hex()]
+	item, ok := c.items[key]
 	c.mu.RUnlock()
 
 	if !ok {
@@ -56,16 +55,22 @@ func (c *MemoryCache[T]) Get(ctx context.Context, id primitive.ObjectID) (T, err
 	if !item.ExpiresAt.IsZero() && time.Now().After(item.ExpiresAt) {
 		// Remove expired item
 		c.mu.Lock()
-		delete(c.items, id.Hex())
+		delete(c.items, key)
 		c.mu.Unlock()
 		return empty, ErrCacheMiss
 	}
+
+	// Update last access time
+	c.mu.Lock()
+	item.LastAccess = time.Now()
+	c.items[key] = item
+	c.mu.Unlock()
 
 	return item.Data, nil
 }
 
 // Set stores a document in the cache with an optional TTL
-func (c *MemoryCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T, ttl time.Duration) error {
+func (c *MemoryCache[T]) Set(ctx context.Context, key string, data T, ttl time.Duration) error {
 	// Use default TTL if not provided
 	if ttl <= 0 {
 		ttl = c.options.DefaultTTL
@@ -77,10 +82,13 @@ func (c *MemoryCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T,
 		expiresAt = time.Now().Add(ttl)
 	}
 
+	now := time.Now()
+
 	// Create cache item
 	item := CacheItem[T]{
-		Data:      data,
-		ExpiresAt: expiresAt,
+		Data:       data,
+		ExpiresAt:  expiresAt,
+		LastAccess: now,
 	}
 
 	// Store in cache
@@ -90,25 +98,26 @@ func (c *MemoryCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T,
 	// Check if we need to enforce MaxItems limit
 	if c.options.MaxItems > 0 && len(c.items) >= c.options.MaxItems {
 		// Check if this is a new item (not an update)
-		_, exists := c.items[id.Hex()]
+		_, exists := c.items[key]
 		if !exists {
-			// Remove oldest item (simple implementation - in a real system, use LRU)
-			var oldestKey string
-			var oldestTime time.Time
+			// 가장 오래된 키를 찾기 위한 맵
+			keyInsertOrder := make(map[string]time.Time)
 
-			for key, item := range c.items {
-				if oldestKey == "" || (item.ExpiresAt.After(time.Time{}) && item.ExpiresAt.Before(oldestTime)) ||
-					(oldestTime.IsZero() && !item.ExpiresAt.IsZero()) {
-					oldestKey = key
-					oldestTime = item.ExpiresAt
-				}
+			// 모든 항목의 키와 마지막 접근 시간을 맵에 저장
+			for k, v := range c.items {
+				keyInsertOrder[k] = v.LastAccess
 			}
 
-			// If no item with expiration found, just take the first one
-			if oldestKey == "" {
-				for key := range c.items {
-					oldestKey = key
-					break
+			// 가장 오래된 키 찾기
+			var oldestKey string
+			var oldestTime time.Time
+			first := true
+
+			for k, t := range keyInsertOrder {
+				if first || t.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = t
+					first = false
 				}
 			}
 
@@ -118,16 +127,16 @@ func (c *MemoryCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T,
 		}
 	}
 
-	c.items[id.Hex()] = item
+	c.items[key] = item
 	return nil
 }
 
 // Delete removes a document from the cache
-func (c *MemoryCache[T]) Delete(ctx context.Context, id primitive.ObjectID) error {
+func (c *MemoryCache[T]) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	delete(c.items, id.Hex())
+	delete(c.items, key)
 	return nil
 }
 

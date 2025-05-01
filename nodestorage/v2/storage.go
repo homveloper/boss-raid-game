@@ -24,12 +24,12 @@
 //	memCache := cache.NewMemoryCache[*MyDocument](nil)
 //
 //	// Create storage with options
-//	options := &v2.Options{VersionField: "vector_clock"}
-//	storage, _ := v2.NewStorage[*MyDocument](ctx, client, collection, memCache, options)
+//	options := &nodestorage.Options{VersionField: "vector_clock"}
+//	storage, _ := nodestorage.NewStorage[*MyDocument](ctx, client, collection, memCache, options)
 //
 //	// Use the storage
 //	doc, _ := storage.FindOne(ctx, id)
-package v2
+package nodestorage
 
 import (
 	"context"

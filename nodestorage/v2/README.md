@@ -82,13 +82,13 @@ func main() {
     defer memCache.Close()
 
     // Create storage options
-    options := &v2.Options{
+    options := &nodestorage.Options{
         VersionField: "vector_clock",
         CacheTTL:     time.Hour,
     }
 
     // Create storage
-    storage, err := v2.NewStorage[*GameState](ctx, client, collection, memCache, options)
+    storage, err := nodestorage.NewStorage[*GameState](ctx, client, collection, memCache, options)
     if err != nil {
         log.Fatalf("Failed to create storage: %v", err)
     }

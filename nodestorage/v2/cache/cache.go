@@ -17,10 +17,10 @@
 //	defer memCache.Close()
 //
 //	// Store a document with 1-hour TTL
-//	err := memCache.Set(ctx, doc.ID, doc, time.Hour)
+//	err := memCache.Set(ctx, doc.ID.Hex(), doc, time.Hour)
 //
 //	// Retrieve the document
-//	cachedDoc, err := memCache.Get(ctx, doc.ID)
+//	cachedDoc, err := memCache.Get(ctx, doc.ID.Hex())
 //	if err == cache.ErrCacheMiss {
 //	    // Document not in cache
 //	}
@@ -30,8 +30,6 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Cache errors define the standard error types returned by cache implementations.
@@ -81,20 +79,20 @@ type Cache[T any] interface {
 	//
 	// Parameters:
 	//   - ctx: The context for the operation
-	//   - id: The unique identifier of the document to retrieve
+	//   - key: The unique identifier of the document to retrieve
 	//
 	// Returns:
 	//   - The cached document if found
 	//   - ErrCacheMiss if the document is not in the cache
 	//   - ErrCacheClosed if the cache is closed
 	//   - Other implementation-specific errors
-	Get(ctx context.Context, id primitive.ObjectID) (T, error)
+	Get(ctx context.Context, key string) (T, error)
 
 	// Set stores a document in the cache with an optional TTL (time-to-live).
 	//
 	// Parameters:
 	//   - ctx: The context for the operation
-	//   - id: The unique identifier of the document
+	//   - key: The unique identifier of the document
 	//   - data: The document to store
 	//   - ttl: The time-to-live for the document (0 for default TTL)
 	//
@@ -106,20 +104,20 @@ type Cache[T any] interface {
 	//   - ErrInvalidValue if the data is invalid
 	//   - ErrSerializationFailed if the data could not be serialized
 	//   - Other implementation-specific errors
-	Set(ctx context.Context, id primitive.ObjectID, data T, ttl time.Duration) error
+	Set(ctx context.Context, key string, data T, ttl time.Duration) error
 
 	// Delete removes a document from the cache by its ID.
 	//
 	// Parameters:
 	//   - ctx: The context for the operation
-	//   - id: The unique identifier of the document to remove
+	//   - key: The unique identifier of the document to remove
 	//
 	// Returns:
 	//   - nil if the document was successfully removed or did not exist
 	//   - ErrCacheClosed if the cache is closed
 	//   - ErrInvalidKey if the ID is invalid
 	//   - Other implementation-specific errors
-	Delete(ctx context.Context, id primitive.ObjectID) error
+	Delete(ctx context.Context, key string) error
 
 	// Clear removes all documents from the cache.
 	//

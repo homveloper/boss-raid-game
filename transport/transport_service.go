@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"nodestorage/v2"
 	v2 "nodestorage/v2"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -14,14 +15,14 @@ import (
 
 // TransportService provides operations for managing transports
 type TransportService struct {
-	storage       v2.Storage[*Transport]
+	storage       nodestorage.Storage[*Transport]
 	mineService   *MineService
 	ticketService *TicketService
 }
 
 // NewTransportService creates a new TransportService
 func NewTransportService(
-	storage v2.Storage[*Transport],
+	storage nodestorage.Storage[*Transport],
 	mineService *MineService,
 	ticketService *TicketService,
 ) *TransportService {

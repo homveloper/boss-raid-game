@@ -35,7 +35,7 @@ func setupBenchmarkCache(b *testing.B, cacheType string, docSize int) (Cache[*Be
 		for i := 0; i < 1000; i++ {
 			id := primitive.NewObjectID()
 			doc.ID = id
-			err := cache.Set(ctx, id, doc, 0)
+			err := cache.Set(ctx, id.Hex(), doc, 0)
 			if err != nil {
 				b.Fatalf("Failed to warm up memory cache: %v", err)
 			}
@@ -70,7 +70,7 @@ func setupBenchmarkCache(b *testing.B, cacheType string, docSize int) (Cache[*Be
 		for i := 0; i < 1000; i++ {
 			id := primitive.NewObjectID()
 			doc.ID = id
-			err := cache.Set(ctx, id, doc, 0)
+			err := cache.Set(ctx, id.Hex(), doc, 0)
 			if err != nil {
 				cache.Close()
 				os.RemoveAll(tempDir)
@@ -106,7 +106,7 @@ func setupBenchmarkCache(b *testing.B, cacheType string, docSize int) (Cache[*Be
 		for i := 0; i < 1000; i++ {
 			id := primitive.NewObjectID()
 			doc.ID = id
-			err := cache.Set(ctx, id, doc, 0)
+			err := cache.Set(ctx, id.Hex(), doc, 0)
 			if err != nil {
 				cache.Close()
 				b.Fatalf("Failed to warm up Redis cache: %v", err)
@@ -169,7 +169,7 @@ func runCacheBenchmark(b *testing.B, cacheType, operation string, docSize int) {
 			for pb.Next() {
 				id := primitive.NewObjectID()
 				doc.ID = id
-				err := cache.Set(ctx, id, doc, 0)
+				err := cache.Set(ctx, id.Hex(), doc, 0)
 				if err != nil {
 					b.Fatalf("Failed to set document: %v", err)
 				}
@@ -180,7 +180,7 @@ func runCacheBenchmark(b *testing.B, cacheType, operation string, docSize int) {
 		// Prepare a document for Get hit
 		id := primitive.NewObjectID()
 		doc.ID = id
-		err := cache.Set(ctx, id, doc, 0)
+		err := cache.Set(ctx, id.Hex(), doc, 0)
 		if err != nil {
 			b.Fatalf("Failed to prepare document for Get hit: %v", err)
 		}
@@ -188,7 +188,7 @@ func runCacheBenchmark(b *testing.B, cacheType, operation string, docSize int) {
 		// Benchmark Get operation (cache hit)
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				_, err := cache.Get(ctx, id)
+				_, err := cache.Get(ctx, id.Hex())
 				if err != nil {
 					b.Fatalf("Failed to get document: %v", err)
 				}
@@ -200,7 +200,7 @@ func runCacheBenchmark(b *testing.B, cacheType, operation string, docSize int) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				id := primitive.NewObjectID() // Non-existent ID
-				_, err := cache.Get(ctx, id)
+				_, err := cache.Get(ctx, id.Hex())
 				if err == nil {
 					b.Fatalf("Expected cache miss, got hit")
 				}
@@ -214,13 +214,13 @@ func runCacheBenchmark(b *testing.B, cacheType, operation string, docSize int) {
 				// Prepare a document to delete
 				id := primitive.NewObjectID()
 				doc.ID = id
-				err := cache.Set(ctx, id, doc, 0)
+				err := cache.Set(ctx, id.Hex(), doc, 0)
 				if err != nil {
 					b.Fatalf("Failed to prepare document for Delete: %v", err)
 				}
 
 				// Delete the document
-				err = cache.Delete(ctx, id)
+				err = cache.Delete(ctx, id.Hex())
 				if err != nil {
 					b.Fatalf("Failed to delete document: %v", err)
 				}
@@ -235,13 +235,13 @@ func runCacheBenchmark(b *testing.B, cacheType, operation string, docSize int) {
 				doc.ID = id
 
 				// Set the document
-				err := cache.Set(ctx, id, doc, 0)
+				err := cache.Set(ctx, id.Hex(), doc, 0)
 				if err != nil {
 					b.Fatalf("Failed to set document: %v", err)
 				}
 
 				// Get the document
-				_, err = cache.Get(ctx, id)
+				_, err = cache.Get(ctx, id.Hex())
 				if err != nil {
 					b.Fatalf("Failed to get document: %v", err)
 				}

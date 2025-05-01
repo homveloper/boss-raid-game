@@ -62,7 +62,7 @@ func main() {
 	defer memCache.Close()
 
 	// Create storage with hot data watcher enabled
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField:          "vector_clock",
 		CacheTTL:              time.Minute * 10,
 		HotDataWatcherEnabled: true,
@@ -71,7 +71,7 @@ func main() {
 		HotDataDecayInterval:  time.Minute,
 	}
 
-	storage, err := v2.NewStorage[*Document](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Document](ctx, client, collection, memCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create storage: %v", err)
 	}
@@ -106,7 +106,7 @@ func main() {
 }
 
 // createTestDocuments creates test documents
-func createTestDocuments(ctx context.Context, storage v2.Storage[*Document], count int) []primitive.ObjectID {
+func createTestDocuments(ctx context.Context, storage nodestorage.Storage[*Document], count int) []primitive.ObjectID {
 	var docIDs []primitive.ObjectID
 
 	for i := 0; i < count; i++ {
@@ -131,7 +131,7 @@ func createTestDocuments(ctx context.Context, storage v2.Storage[*Document], cou
 }
 
 // simulateAccessPatterns simulates different access patterns
-func simulateAccessPatterns(ctx context.Context, storage v2.Storage[*Document], docIDs []primitive.ObjectID) {
+func simulateAccessPatterns(ctx context.Context, storage nodestorage.Storage[*Document], docIDs []primitive.ObjectID) {
 	// Simulate frequent access to some documents
 	go func() {
 		for i := 0; i < 50; i++ {

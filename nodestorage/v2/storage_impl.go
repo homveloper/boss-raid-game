@@ -1,4 +1,4 @@
-package v2
+package nodestorage
 
 import (
 	"context"
@@ -29,7 +29,7 @@ import (
 
 // Subscriber represents a watch subscriber
 type Subscriber[T Cachable[T]] struct {
-	ID     int
+	ID     int64
 	Chan   chan WatchEvent[T]
 	Ctx    context.Context
 	Cancel context.CancelFunc
@@ -45,9 +45,9 @@ type StorageImpl[T Cachable[T]] struct {
 	cancel         context.CancelFunc
 	closed         bool
 	closeMu        sync.Mutex
-	subscribers    map[int]*Subscriber[T]
+	subscribers    map[int64]*Subscriber[T]
 	subMu          sync.RWMutex
-	nextSubID      int
+	nextSubID      int64
 	versionField   string                   // Struct field name for version
 	versionBSONTag string                   // BSON tag name for version field
 	hotDataWatcher *cache.HotDataWatcher[T] // Watcher for hot data
@@ -80,8 +80,9 @@ func NewStorage[T Cachable[T]](
 
 	// Validate that the version field exists in the struct and get its BSON tag
 	var doc T
-	versionField, versionBSONTag, err := validateVersionField[T](doc, options.VersionField)
+	versionField, versionBSONTag, err := validateVersionField(doc, options.VersionField)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -92,7 +93,7 @@ func NewStorage[T Cachable[T]](
 		options:        options,
 		ctx:            storageCtx,
 		cancel:         cancel,
-		subscribers:    make(map[int]*Subscriber[T]),
+		subscribers:    make(map[int64]*Subscriber[T]),
 		nextSubID:      1,
 		versionField:   versionField,
 		versionBSONTag: versionBSONTag,
@@ -139,7 +140,7 @@ func (s *StorageImpl[T]) FindOne(
 	}
 
 	// Try to get from cache first
-	doc, err := s.cache.Get(ctx, id)
+	doc, err := s.cache.Get(ctx, s.getKey(id))
 	if err == nil {
 		// Record access for hot data tracking
 		if s.hotDataWatcher != nil {
@@ -175,7 +176,7 @@ func (s *StorageImpl[T]) FindOne(
 	}
 
 	// Store in cache
-	if err := s.cache.Set(ctx, id, result, s.options.CacheTTL); err != nil {
+	if err := s.cache.Set(ctx, s.getKey(id), result, s.options.CacheTTL); err != nil {
 		// Log error but continue
 		core.Error("Failed to cache document",
 			zap.Error(err),
@@ -237,7 +238,7 @@ func (s *StorageImpl[T]) FindOneAndUpsert(ctx context.Context, data T) (T, error
 	}
 
 	// Store in cache
-	if err := s.cache.Set(ctx, id, result, s.options.CacheTTL); err != nil {
+	if err := s.cache.Set(ctx, s.getKey(id), result, s.options.CacheTTL); err != nil {
 		core.Warn("Document created/retrieved but failed to cache",
 			zap.Error(err),
 			zap.String("id", id.Hex()))
@@ -447,7 +448,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 			// Update succeeded
 
 			// Update cache
-			if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+			if err := s.cache.Set(timeoutCtx, s.getKey(id), updatedDoc, s.options.CacheTTL); err != nil {
 				return updatedDoc, diff, fmt.Errorf("document updated but failed to update cache: %w", err)
 			}
 
@@ -479,7 +480,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 			}
 
 			// Invalidate cache to get fresh data on next retry
-			if err := s.cache.Delete(timeoutCtx, id); err != nil {
+			if err := s.cache.Delete(timeoutCtx, s.getKey(id)); err != nil {
 				return empty, nil, fmt.Errorf("failed to invalidate cache for retry: %w", err)
 			}
 
@@ -508,7 +509,7 @@ func (s *StorageImpl[T]) DeleteOne(ctx context.Context, id primitive.ObjectID) e
 	}
 
 	// Delete from cache
-	if err := s.cache.Delete(ctx, id); err != nil {
+	if err := s.cache.Delete(ctx, s.getKey(id)); err != nil {
 		return fmt.Errorf("document deleted from database but failed to delete from cache: %w", err)
 	}
 
@@ -683,7 +684,7 @@ func (s *StorageImpl[T]) FindMany(
 		if s.options.CacheQueryResults {
 			id, err := getDocumentID(doc)
 			if err == nil {
-				if err := s.cache.Set(ctx, id, doc, s.options.CacheTTL); err != nil {
+				if err := s.cache.Set(ctx, s.getKey(id), doc, s.options.CacheTTL); err != nil {
 					core.Warn("Failed to cache query result",
 						zap.Error(err),
 						zap.String("id", id.Hex()))
@@ -836,7 +837,7 @@ func (s *StorageImpl[T]) UpdateOne(
 		}
 
 		// Update cache
-		if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+		if err := s.cache.Set(timeoutCtx, s.getKey(id), updatedDoc, s.options.CacheTTL); err != nil {
 			return updatedDoc, fmt.Errorf("document updated but failed to update cache: %w", err)
 		}
 
@@ -965,7 +966,7 @@ func (s *StorageImpl[T]) UpdateOneWithPipeline(
 		}
 
 		// Update cache
-		if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+		if err := s.cache.Set(timeoutCtx, s.getKey(id), updatedDoc, s.options.CacheTTL); err != nil {
 			return updatedDoc, fmt.Errorf("document updated but failed to update cache: %w", err)
 		}
 
@@ -1166,7 +1167,7 @@ func (s *StorageImpl[T]) UpdateSection(
 		}
 
 		// Update cache
-		if err := s.cache.Set(timeoutCtx, id, updatedDoc, s.options.CacheTTL); err != nil {
+		if err := s.cache.Set(timeoutCtx, s.getKey(id), updatedDoc, s.options.CacheTTL); err != nil {
 			return updatedDoc, fmt.Errorf("section updated but failed to update cache: %w", err)
 		}
 
@@ -1384,7 +1385,7 @@ func (s *StorageImpl[T]) Watch(
 			default:
 				// Channel is full, log warning and continue
 				core.Warn("Subscriber channel is full, skipping event",
-					zap.Int("subscriber_id", subID),
+					zap.Int64("subscriber_id", subID),
 					zap.String("document_id", docID.Hex()),
 					zap.String("operation", operation))
 			}
@@ -1408,7 +1409,7 @@ func (s *StorageImpl[T]) Watch(
 }
 
 // removeSubscriber removes a subscriber by ID
-func (s *StorageImpl[T]) removeSubscriber(id int) {
+func (s *StorageImpl[T]) removeSubscriber(id int64) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
 
@@ -1538,9 +1539,13 @@ func (s *StorageImpl[T]) broadcastEvent(event WatchEvent[T]) {
 		default:
 			// Channel is full, skip this subscriber
 			core.Warn("Subscriber channel is full, skipping event",
-				zap.Int("subscriber_id", sub.ID),
+				zap.Int64("subscriber_id", sub.ID),
 				zap.String("document_id", event.ID.Hex()),
 				zap.String("operation", event.Operation))
 		}
 	}
+}
+
+func (s *StorageImpl[T]) getKey(id primitive.ObjectID) string {
+	return id.Hex()
 }

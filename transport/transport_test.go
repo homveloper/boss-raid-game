@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	v2 "nodestorage/v2"
+	"nodestorage/v2"
 	"nodestorage/v2/cache"
 
 	"github.com/stretchr/testify/assert"
@@ -63,27 +63,27 @@ func setupTestServices(t *testing.T) (*MineService, *TicketService, *TransportSe
 	ticketCache := cache.NewMemoryCache[*TransportTicket](nil)
 
 	// Create storage options
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock",
 		CacheTTL:     time.Hour,
 	}
 
 	// Create storages
 	ctx := context.Background()
-	mineStorage, err := v2.NewStorage[*Mine](ctx, client, mineCollection, mineCache, storageOptions)
+	mineStorage, err := nodestorage.NewStorage[*Mine](ctx, client, mineCollection, mineCache, storageOptions)
 	require.NoError(t, err, "Failed to create mine storage")
 
-	configStorage, err := v2.NewStorage[*MineConfig](ctx, client, configCollection, configCache, storageOptions)
+	configStorage, err := nodestorage.NewStorage[*MineConfig](ctx, client, configCollection, configCache, storageOptions)
 	require.NoError(t, err, "Failed to create config storage")
 
-	transportStorage, err := v2.NewStorage[*Transport](ctx, client, transportCollection, transportCache, storageOptions)
+	transportStorage, err := nodestorage.NewStorage[*Transport](ctx, client, transportCollection, transportCache, storageOptions)
 	require.NoError(t, err, "Failed to create transport storage")
 
-	ticketStorage, err := v2.NewStorage[*TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
+	ticketStorage, err := nodestorage.NewStorage[*TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
 	require.NoError(t, err, "Failed to create ticket storage")
 
 	// Create services
-	mineService := NewMineService(mineStorage, configStorage)
+	mineService := NewMineService(mineStorage, configStorage, nil, nil)
 	ticketService := NewTicketService(ticketStorage)
 	transportService := NewTransportService(transportStorage, mineService, ticketService)
 

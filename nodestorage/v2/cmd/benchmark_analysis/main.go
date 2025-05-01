@@ -3,10 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	v2 "nodestorage/v2"
 	"os"
 	"path/filepath"
-
-	v2 "nodestorage/v2"
 )
 
 func main() {

@@ -3,9 +3,8 @@ package transport
 import (
 	"context"
 	"fmt"
+	"nodestorage/v2"
 	"time"
-
-	v2 "nodestorage/v2"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -13,11 +12,11 @@ import (
 
 // GeneralService handles operations related to generals
 type GeneralService struct {
-	storage v2.Storage[*General]
+	storage nodestorage.Storage[*General]
 }
 
 // NewGeneralService creates a new GeneralService
-func NewGeneralService(storage v2.Storage[*General]) *GeneralService {
+func NewGeneralService(storage nodestorage.Storage[*General]) *GeneralService {
 	return &GeneralService{
 		storage: storage,
 	}

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"nodestorage/v2"
 	"os"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	v2 "nodestorage/v2"
 	"nodestorage/v2/cache"
 	"tictactoe/transport"
 )
@@ -71,31 +71,31 @@ func main() {
 	ticketCache := cache.NewMemoryCache[*transport.TransportTicket](nil)
 
 	// 6. 스토리지 옵션 생성
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // 구조체 필드 이름과 일치해야 함
 		CacheTTL:     time.Hour,
 	}
 
 	// 7. 스토리지 생성
-	mineStorage, err := v2.NewStorage[*transport.Mine](ctx, client, mineCollection, mineCache, storageOptions)
+	mineStorage, err := nodestorage.NewStorage[*transport.Mine](ctx, client, mineCollection, mineCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create mine storage: %v", err)
 	}
 	defer mineStorage.Close()
 
-	mineConfigStorage, err := v2.NewStorage[*transport.MineConfig](ctx, client, mineConfigCollection, mineConfigCache, storageOptions)
+	mineConfigStorage, err := nodestorage.NewStorage[*transport.MineConfig](ctx, client, mineConfigCollection, mineConfigCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create mine config storage: %v", err)
 	}
 	defer mineConfigStorage.Close()
 
-	generalStorage, err := v2.NewStorage[*transport.General](ctx, client, generalCollection, generalCache, storageOptions)
+	generalStorage, err := nodestorage.NewStorage[*transport.General](ctx, client, generalCollection, generalCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create general storage: %v", err)
 	}
 	defer generalStorage.Close()
 
-	ticketStorage, err := v2.NewStorage[*transport.TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
+	ticketStorage, err := nodestorage.NewStorage[*transport.TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create ticket storage: %v", err)
 	}

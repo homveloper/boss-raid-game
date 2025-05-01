@@ -7,7 +7,6 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // BadgerCache implements the Cache interface using BadgerDB
@@ -42,15 +41,15 @@ func NewBadgerCache[T any](dbPath string, options *CacheOptions) (*BadgerCache[T
 }
 
 // Get retrieves a document from the cache
-func (c *BadgerCache[T]) Get(ctx context.Context, id primitive.ObjectID) (T, error) {
+func (c *BadgerCache[T]) Get(ctx context.Context, key string) (T, error) {
 	var result T
 
 	// Create key from ID
-	key := getKey(id)
+	innerkey := getKey(key)
 
 	// Read from BadgerDB
 	err := c.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(key)
+		item, err := txn.Get(innerkey)
 		if err != nil {
 			return err
 		}
@@ -72,9 +71,9 @@ func (c *BadgerCache[T]) Get(ctx context.Context, id primitive.ObjectID) (T, err
 }
 
 // Set stores a document in the cache with an optional TTL
-func (c *BadgerCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T, ttl time.Duration) error {
+func (c *BadgerCache[T]) Set(ctx context.Context, key string, data T, ttl time.Duration) error {
 	// Create key from ID
-	key := getKey(id)
+	innerkey := getKey(key)
 
 	// Marshal the data
 	value, err := bson.Marshal(data)
@@ -89,7 +88,7 @@ func (c *BadgerCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T,
 
 	// Write to BadgerDB
 	err = c.db.Update(func(txn *badger.Txn) error {
-		entry := badger.NewEntry(key, value).WithTTL(ttl)
+		entry := badger.NewEntry(innerkey, value).WithTTL(ttl)
 		return txn.SetEntry(entry)
 	})
 
@@ -101,13 +100,13 @@ func (c *BadgerCache[T]) Set(ctx context.Context, id primitive.ObjectID, data T,
 }
 
 // Delete removes a document from the cache
-func (c *BadgerCache[T]) Delete(ctx context.Context, id primitive.ObjectID) error {
+func (c *BadgerCache[T]) Delete(ctx context.Context, key string) error {
 	// Create key from ID
-	key := getKey(id)
+	innerkey := getKey(key)
 
 	// Delete from BadgerDB
 	err := c.db.Update(func(txn *badger.Txn) error {
-		return txn.Delete(key)
+		return txn.Delete(innerkey)
 	})
 
 	if err != nil {
@@ -129,8 +128,8 @@ func (c *BadgerCache[T]) Close() error {
 }
 
 // Helper function to create a key from an ObjectID
-func getKey(id primitive.ObjectID) []byte {
-	return []byte(id.Hex())
+func getKey(key string) []byte {
+	return []byte(key)
 }
 
 // Helper function to run BadgerDB garbage collection in background

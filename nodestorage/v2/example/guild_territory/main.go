@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"nodestorage/v2"
 	"sync"
 	"time"
 
-	v2 "nodestorage/v2"
 	"nodestorage/v2/cache"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -33,11 +33,11 @@ func Example() {
 	defer memCache.Close()
 
 	// Create storage
-	storageOptions := &v2.Options{
+	storageOptions := &nodestorage.Options{
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := v2.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create storage: %v", err)
 	}

@@ -485,7 +485,7 @@ func (w *HotDataWatcher[T]) processChangeStream() {
 					continue
 				}
 
-				err := w.cache.Set(w.ctx, event.DocumentKey.ID, doc, 0)
+				err := w.cache.Set(w.ctx, event.DocumentKey.ID.Hex(), doc, 0)
 				if err != nil {
 					w.logger.Error("Failed to update cache",
 						zap.Error(err),
@@ -499,7 +499,7 @@ func (w *HotDataWatcher[T]) processChangeStream() {
 			}
 		case "delete":
 			// Remove from cache
-			err := w.cache.Delete(w.ctx, event.DocumentKey.ID)
+			err := w.cache.Delete(w.ctx, event.DocumentKey.ID.Hex())
 			if err != nil {
 				w.logger.Error("Failed to delete from cache",
 					zap.Error(err),

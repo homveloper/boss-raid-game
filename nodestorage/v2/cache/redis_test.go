@@ -93,31 +93,31 @@ func TestRedisCacheBasicOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Test Set
-	err := cache.Set(ctx, id, doc, 0)
+	err := cache.Set(ctx, id.Hex(), doc, 0)
 	assert.NoError(t, err, "Set should not return an error")
 
 	// Test Get
-	retrievedDoc, err := cache.Get(ctx, id)
+	retrievedDoc, err := cache.Get(ctx, id.Hex())
 	assert.NoError(t, err, "Get should not return an error")
 	assert.Equal(t, doc.ID, retrievedDoc.ID, "Document ID should match")
 	assert.Equal(t, doc.Name, retrievedDoc.Name, "Document Name should match")
 	assert.Equal(t, doc.Age, retrievedDoc.Age, "Document Age should match")
 
 	// Test Delete
-	err = cache.Delete(ctx, id)
+	err = cache.Delete(ctx, id.Hex())
 	assert.NoError(t, err, "Delete should not return an error")
 
 	// Test Get after Delete
-	_, err = cache.Get(ctx, id)
+	_, err = cache.Get(ctx, id.Hex())
 	assert.Error(t, err, "Get after Delete should return an error")
 	assert.Equal(t, ErrCacheMiss, err, "Error should be ErrCacheMiss")
 
 	// Test Clear
-	err = cache.Set(ctx, id, doc, 0)
+	err = cache.Set(ctx, id.Hex(), doc, 0)
 	assert.NoError(t, err, "Set should not return an error")
 	err = cache.Clear(ctx)
 	assert.NoError(t, err, "Clear should not return an error")
-	_, err = cache.Get(ctx, id)
+	_, err = cache.Get(ctx, id.Hex())
 	assert.Error(t, err, "Get after Clear should return an error")
 	assert.Equal(t, ErrCacheMiss, err, "Error should be ErrCacheMiss")
 }
@@ -143,11 +143,11 @@ func TestRedisCacheTTL(t *testing.T) {
 	ctx := context.Background()
 
 	// Test Set with short TTL
-	err := cache.Set(ctx, id, doc, 100*time.Millisecond)
+	err := cache.Set(ctx, id.Hex(), doc, 100*time.Millisecond)
 	assert.NoError(t, err, "Set with TTL should not return an error")
 
 	// Test Get immediately after Set
-	retrievedDoc, err := cache.Get(ctx, id)
+	retrievedDoc, err := cache.Get(ctx, id.Hex())
 	assert.NoError(t, err, "Get immediately after Set should not return an error")
 	assert.Equal(t, doc.ID, retrievedDoc.ID, "Document ID should match")
 
@@ -155,7 +155,7 @@ func TestRedisCacheTTL(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Test Get after TTL expiration
-	_, err = cache.Get(ctx, id)
+	_, err = cache.Get(ctx, id.Hex())
 	assert.Error(t, err, "Get after TTL expiration should return an error")
 	assert.Equal(t, ErrCacheMiss, err, "Error should be ErrCacheMiss")
 
@@ -167,7 +167,7 @@ func TestRedisCacheTTL(t *testing.T) {
 
 	options := DefaultCacheOptions()
 	options.DefaultTTL = 100 * time.Millisecond
-	
+
 	cacheWithDefaultTTL, err := NewRedisCache[*TestDocument](redisAddr, options)
 	require.NoError(t, err, "Failed to create Redis cache with custom options")
 	defer func() {
@@ -178,11 +178,11 @@ func TestRedisCacheTTL(t *testing.T) {
 	// Set custom prefix
 	cacheWithDefaultTTL.prefix = "test:" + primitive.NewObjectID().Hex() + ":"
 
-	err = cacheWithDefaultTTL.Set(ctx, id, doc, 0) // Use default TTL
+	err = cacheWithDefaultTTL.Set(ctx, id.Hex(), doc, 0) // Use default TTL
 	assert.NoError(t, err, "Set with default TTL should not return an error")
 
 	// Test Get immediately after Set
-	retrievedDoc, err = cacheWithDefaultTTL.Get(ctx, id)
+	retrievedDoc, err = cacheWithDefaultTTL.Get(ctx, id.Hex())
 	assert.NoError(t, err, "Get immediately after Set should not return an error")
 	assert.Equal(t, doc.ID, retrievedDoc.ID, "Document ID should match")
 
@@ -190,7 +190,7 @@ func TestRedisCacheTTL(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Test Get after TTL expiration
-	_, err = cacheWithDefaultTTL.Get(ctx, id)
+	_, err = cacheWithDefaultTTL.Get(ctx, id.Hex())
 	assert.Error(t, err, "Get after TTL expiration should return an error")
 	assert.Equal(t, ErrCacheMiss, err, "Error should be ErrCacheMiss")
 }
@@ -219,14 +219,14 @@ func TestRedisCacheConcurrency(t *testing.T) {
 	}
 
 	// Set the document
-	err := cache.Set(ctx, id, doc, 0)
+	err := cache.Set(ctx, id.Hex(), doc, 0)
 	assert.NoError(t, err, "Set should not return an error")
 
 	// Run concurrent Get operations
 	done := make(chan bool)
 	for i := 0; i < numOps; i++ {
 		go func() {
-			retrievedDoc, err := cache.Get(ctx, id)
+			retrievedDoc, err := cache.Get(ctx, id.Hex())
 			assert.NoError(t, err, "Concurrent Get should not return an error")
 			assert.Equal(t, doc.ID, retrievedDoc.ID, "Document ID should match")
 			done <- true
@@ -246,7 +246,7 @@ func TestRedisCacheConcurrency(t *testing.T) {
 				Name: "Test Document " + string(rune('A'+i%26)),
 				Age:  30 + i%10,
 			}
-			err := cache.Set(ctx, id, newDoc, 0)
+			err := cache.Set(ctx, id.Hex(), newDoc, 0)
 			assert.NoError(t, err, "Concurrent Set should not return an error")
 			done <- true
 		}(i)
@@ -258,7 +258,7 @@ func TestRedisCacheConcurrency(t *testing.T) {
 	}
 
 	// Verify the document is still accessible
-	retrievedDoc, err := cache.Get(ctx, id)
+	retrievedDoc, err := cache.Get(ctx, id.Hex())
 	assert.NoError(t, err, "Get after concurrent operations should not return an error")
 	assert.Equal(t, id, retrievedDoc.ID, "Document ID should match")
 }
@@ -290,7 +290,7 @@ func TestRedisCacheOptions(t *testing.T) {
 		MinIdleConns: 5,
 		KeyPrefix:    "custom:",
 	}
-	
+
 	cache, err := NewRedisCacheWithOptions[*TestDocument](redisAddr, customOptions)
 	require.NoError(t, err, "Failed to create Redis cache with custom options")
 	defer cache.Close()
@@ -304,10 +304,10 @@ func TestRedisCacheOptions(t *testing.T) {
 		Age:  30,
 	}
 
-	err = cache.Set(ctx, id, doc, 0)
+	err = cache.Set(ctx, id.Hex(), doc, 0)
 	assert.NoError(t, err, "Set should not return an error")
 
-	retrievedDoc, err := cache.Get(ctx, id)
+	retrievedDoc, err := cache.Get(ctx, id.Hex())
 	assert.NoError(t, err, "Get should not return an error")
 	assert.Equal(t, doc.ID, retrievedDoc.ID, "Document ID should match")
 
@@ -331,7 +331,7 @@ func TestRedisCacheMultipleDocuments(t *testing.T) {
 	numDocs := 100
 	ids := make([]primitive.ObjectID, numDocs)
 	docs := make([]*TestDocument, numDocs)
-	
+
 	for i := 0; i < numDocs; i++ {
 		ids[i] = primitive.NewObjectID()
 		docs[i] = &TestDocument{
@@ -339,15 +339,15 @@ func TestRedisCacheMultipleDocuments(t *testing.T) {
 			Name: "Document " + string(rune('A'+i%26)),
 			Age:  30 + i%50,
 		}
-		
+
 		// Set document
-		err := cache.Set(ctx, ids[i], docs[i], 0)
+		err := cache.Set(ctx, ids[i].Hex(), docs[i], 0)
 		assert.NoError(t, err, "Set should not return an error")
 	}
 
 	// Retrieve and verify all documents
 	for i := 0; i < numDocs; i++ {
-		retrievedDoc, err := cache.Get(ctx, ids[i])
+		retrievedDoc, err := cache.Get(ctx, ids[i].Hex())
 		assert.NoError(t, err, "Get should not return an error")
 		assert.Equal(t, docs[i].ID, retrievedDoc.ID, "Document ID should match")
 		assert.Equal(t, docs[i].Name, retrievedDoc.Name, "Document Name should match")
@@ -356,20 +356,20 @@ func TestRedisCacheMultipleDocuments(t *testing.T) {
 
 	// Delete half of the documents
 	for i := 0; i < numDocs/2; i++ {
-		err := cache.Delete(ctx, ids[i])
+		err := cache.Delete(ctx, ids[i].Hex())
 		assert.NoError(t, err, "Delete should not return an error")
 	}
 
 	// Verify deleted documents are gone
 	for i := 0; i < numDocs/2; i++ {
-		_, err := cache.Get(ctx, ids[i])
+		_, err := cache.Get(ctx, ids[i].Hex())
 		assert.Error(t, err, "Get after Delete should return an error")
 		assert.Equal(t, ErrCacheMiss, err, "Error should be ErrCacheMiss")
 	}
 
 	// Verify remaining documents are still accessible
 	for i := numDocs / 2; i < numDocs; i++ {
-		retrievedDoc, err := cache.Get(ctx, ids[i])
+		retrievedDoc, err := cache.Get(ctx, ids[i].Hex())
 		assert.NoError(t, err, "Get should not return an error")
 		assert.Equal(t, docs[i].ID, retrievedDoc.ID, "Document ID should match")
 	}

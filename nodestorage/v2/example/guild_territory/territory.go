@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	v2 "nodestorage/v2"
+	"nodestorage/v2"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -14,11 +14,11 @@ import (
 
 // TerritoryService provides operations for managing guild territories
 type TerritoryService struct {
-	storage v2.Storage[*Territory]
+	storage nodestorage.Storage[*Territory]
 }
 
 // NewTerritoryService creates a new TerritoryService
-func NewTerritoryService(storage v2.Storage[*Territory]) *TerritoryService {
+func NewTerritoryService(storage nodestorage.Storage[*Territory]) *TerritoryService {
 	return &TerritoryService{
 		storage: storage,
 	}
@@ -57,7 +57,7 @@ func (s *TerritoryService) GetTerritoryByGuild(ctx context.Context, guildID prim
 	}
 
 	if len(territories) == 0 {
-		return nil, v2.ErrNotFound
+		return nil, nodestorage.ErrNotFound
 	}
 
 	return territories[0], nil
@@ -224,7 +224,7 @@ func (s *TerritoryService) AddResources(ctx context.Context, territoryID primiti
 }
 
 // WatchTerritory watches for changes to a territory
-func (s *TerritoryService) WatchTerritory(ctx context.Context, territoryID primitive.ObjectID) (<-chan v2.WatchEvent[*Territory], error) {
+func (s *TerritoryService) WatchTerritory(ctx context.Context, territoryID primitive.ObjectID) (<-chan nodestorage.WatchEvent[*Territory], error) {
 	pipeline := mongo.Pipeline{
 		bson.D{{Key: "$match", Value: bson.D{
 			{Key: "documentKey._id", Value: territoryID},
