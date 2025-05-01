@@ -6,7 +6,7 @@ LuvJSON CRDT 동기화 패키지는 LuvJSON CRDT 문서의 분산 노드 간 동
 
 - **분산 노드 간 동기화**: 여러 노드에서 동일한 CRDT 문서를 동기화
 - **상태 기반 동기화**: 상태 벡터를 사용한 효율적인 동기화
-- **PubSub 기반 브로드캐스팅**: 기존 crdtpubsub 패키지와 통합
+- **다양한 동기화 방법**: Redis PubSub, Redis Streams 등 다양한 동기화 방법 지원
 - **피어 발견**: Redis 기반 자동 피어 발견
 - **패치 저장소**: 패치 저장 및 검색 기능
 
@@ -70,7 +70,7 @@ if err := syncManager.ApplyPatch(ctx, patch); err != nil {
 }
 ```
 
-### Redis 기반 동기화
+### Redis PubSub 기반 동기화
 
 ```go
 // Redis 클라이언트 생성
@@ -85,12 +85,105 @@ if err != nil {
 }
 defer pubsub.Close()
 
+// 브로드캐스터 생성
+broadcaster := crdtsync.NewPubSubBroadcaster(
+    pubsub,
+    "example-doc-patches",
+    crdtpubsub.EncodingFormatJSON,
+    doc.GetSessionID(),
+)
+
+// 패치 저장소 생성 (메모리 구현 사용)
+patchStore := crdtsync.NewMemoryPatchStore()
+
 // Redis 피어 발견 생성
 peerDiscovery := crdtsync.NewRedisPeerDiscovery(redisClient, "example-doc", "node-1")
 peerDiscovery.Start(ctx)
 defer peerDiscovery.Close()
 
-// 나머지는 기본 사용법과 동일
+// 싱커 생성
+syncer := crdtsync.NewPubSubSyncer(
+    pubsub,
+    "example-doc-sync",
+    "node-1",
+    stateVector,
+    patchStore,
+    crdtpubsub.EncodingFormatJSON,
+)
+
+// 동기화 매니저 생성
+syncManager := crdtsync.NewSyncManager(doc, broadcaster, syncer, peerDiscovery, patchStore)
+```
+
+### Redis Streams 기반 동기화
+
+```go
+// Redis 클라이언트 생성
+redisClient := redis.NewClient(&redis.Options{
+    Addr: "localhost:6379",
+})
+
+// Redis Streams 브로드캐스터 생성
+broadcaster, err := crdtsync.NewRedisStreamsBroadcaster(
+    redisClient,
+    "example-doc-patches-stream",
+    crdtpubsub.EncodingFormatJSON,
+    doc.GetSessionID(),
+)
+if err != nil {
+    log.Fatalf("Failed to create Redis Streams broadcaster: %v", err)
+}
+
+// Redis Streams 패치 저장소 생성
+patchStore, err := crdtsync.NewRedisStreamsPatchStore(
+    redisClient,
+    "example-doc-patches-store",
+    crdtpubsub.EncodingFormatJSON,
+)
+if err != nil {
+    log.Fatalf("Failed to create Redis Streams patch store: %v", err)
+}
+
+// 피어 발견 생성
+peerDiscovery := crdtsync.NewRedisPeerDiscovery(redisClient, "example-doc", "node-1")
+peerDiscovery.Start(ctx)
+defer peerDiscovery.Close()
+
+// 싱커 생성
+syncer := crdtsync.NewPubSubSyncer(
+    nil, // PubSub은 사용하지 않음
+    "example-doc-sync",
+    "node-1",
+    stateVector,
+    patchStore,
+    crdtpubsub.EncodingFormatJSON,
+)
+
+// 동기화 매니저 생성
+syncManager := crdtsync.NewSyncManager(doc, broadcaster, syncer, peerDiscovery, patchStore)
+```
+
+### 팩토리 함수를 사용한 동기화 매니저 생성
+
+다양한 동기화 방법을 쉽게 사용할 수 있도록 팩토리 함수를 제공합니다.
+
+```go
+// 동기화 옵션 생성
+syncOptions := crdtsync.DefaultSyncOptions()
+syncOptions.SyncType = crdtsync.SyncTypeRedisStreams
+syncOptions.RedisAddr = "localhost:6379"
+syncOptions.MaxStreamLength = 10000
+
+// 동기화 매니저 생성
+syncManager, err := crdtsync.CreateSyncManager(
+    ctx,
+    doc,
+    "example-doc",
+    syncOptions,
+)
+if err != nil {
+    log.Fatalf("Failed to create sync manager: %v", err)
+}
 ```
 
 ### API 모델과 함께 사용
@@ -145,15 +238,42 @@ if err := syncManager.ApplyPatch(ctx, patch); err != nil {
 
 ## 예제
 
-`examples/crdtsync/distributed_example.go`에서 전체 예제를 확인할 수 있습니다. 이 예제는 다음 기능을 보여줍니다:
+`examples/crdtsync` 디렉토리에서 다음 예제를 확인할 수 있습니다:
 
-- 메모리 또는 Redis 기반 PubSub 사용
-- 문서 생성 및 수정
-- 노드 간 동기화
-- 사용자 입력 처리
+- `distributed_example.go`: Redis PubSub을 사용한 분산 동기화 예제
+- `redis_streams_example.go`: Redis Streams를 사용한 분산 동기화 예제
+
+## 동기화 방법 비교
+
+### Redis PubSub
+
+**장점**:
+- 간단하고 가벼운 메시징 시스템
+- 실시간 메시지 전달에 적합
+- 구현이 간단하고 직관적
+
+**단점**:
+- 메시지 지속성 없음 (오프라인 노드는 메시지를 놓침)
+- 메시지 전달 보장 없음
+- 대규모 시스템에서 확장성 제한
+
+### Redis Streams
+
+**장점**:
+- 내구성 있는 메시지 큐
+- 메시지 지속성 (오프라인 노드가 다시 온라인 상태가 되었을 때 놓친 메시지 처리 가능)
+- 소비자 그룹 기능 (여러 노드가 메시지를 분산 처리 가능)
+- 메시지 ID를 통한 순서 보장
+
+**단점**:
+- 구현이 더 복잡함
+- 메모리 사용량이 더 많음
+- Redis 5.0 이상 필요
 
 ## 향후 개선 사항
 
+- **Kafka 기반 동기화**: 대규모 분산 시스템을 위한 Kafka 기반 동기화 구현
+- **IPFS 기반 동기화**: 완전 분산형 P2P 동기화를 위한 IPFS 기반 동기화 구현
 - **Merkle DAG 기반 동기화**: 더 효율적인 동기화를 위한 Merkle DAG 구현
 - **충돌 해결 전략**: 고급 충돌 해결 전략 구현
 - **보안**: 인증 및 암호화 지원

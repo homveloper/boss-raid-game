@@ -11,7 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"tictactoe/luvjson/api"
+	"tictactoe/luvjson/common"
+	"tictactoe/luvjson/crdt"
 	"tictactoe/luvjson/crdtpatch"
 	"tictactoe/luvjson/crdtstorage"
 )
@@ -83,10 +84,33 @@ func main() {
 		}
 
 		// 초기 문서 내용 설정
-		result := doc.Edit(ctx, func(api *api.ModelApi) error {
-			api.Root(map[string]interface{}{
-				"items": []interface{}{},
-			})
+		result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
+			// 루트 노드 생성
+			rootID := crdtDoc.NextTimestamp()
+			rootOp := &crdtpatch.NewOperation{
+				ID:       rootID,
+				NodeType: common.NodeTypeCon,
+				Value:    map[string]interface{}{"items": []interface{}{}},
+			}
+
+			// 패치 생성 및 적용
+			patchID := crdtDoc.NextTimestamp()
+			patch := crdtpatch.NewPatch(patchID)
+			patch.AddOperation(rootOp)
+
+			// 루트 설정 작업 추가
+			rootSetOp := &crdtpatch.InsOperation{
+				ID:       crdtDoc.NextTimestamp(),
+				TargetID: common.RootID,
+				Value:    rootID,
+			}
+			patch.AddOperation(rootSetOp)
+
+			// 패치 적용
+			if err := patch.Apply(crdtDoc); err != nil {
+				return fmt.Errorf("failed to apply root patch: %w", err)
+			}
+
 			return nil
 		})
 		if !result.Success {
@@ -231,9 +255,9 @@ func addItem(ctx context.Context, doc *crdtstorage.Document, useTransaction bool
 	item.LastUpdated = time.Now().Format(time.RFC3339)
 
 	// 편집 함수 정의
-	editFunc := func(api *api.ModelApi) error {
+	editFunc := func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
 		// 현재 내용 가져오기
-		content, err := api.View()
+		content, err := crdtDoc.View()
 		if err != nil {
 			return fmt.Errorf("failed to get content: %w", err)
 		}
@@ -246,19 +270,34 @@ func addItem(ctx context.Context, doc *crdtstorage.Document, useTransaction bool
 		items = append(items, item)
 		contentMap["items"] = items
 
-		// 루트 설정
-		api.Root(contentMap)
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value:    contentMap,
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	}
 
 	// 아이템 추가
 	startTime := time.Now()
-	var result interface{}
 
 	if useTransaction {
 		// 분산 트랜잭션 사용
 		txResult := doc.EditTransaction(ctx, editFunc)
-		result = txResult
 		if !txResult.Success {
 			fmt.Printf("아이템 추가 실패: %v\n", txResult.Error)
 			return
@@ -266,11 +305,10 @@ func addItem(ctx context.Context, doc *crdtstorage.Document, useTransaction bool
 		fmt.Printf("아이템이 추가되었습니다. (분산 트랜잭션 사용, 소요 시간: %v)\n", time.Since(startTime))
 	} else {
 		// 낙관적 동시성 제어 사용
-		editResult := doc.Edit(ctx, editFunc, 
+		editResult := doc.Edit(ctx, editFunc,
 			crdtstorage.WithMaxRetries(5),
 			crdtstorage.WithRetryDelay(200*time.Millisecond),
 			crdtstorage.WithExponentialBackoff(true))
-		result = editResult
 		if !editResult.Success {
 			fmt.Printf("아이템 추가 실패: %v\n", editResult.Error)
 			return
@@ -364,9 +402,9 @@ func updateItem(ctx context.Context, doc *crdtstorage.Document) {
 	}
 
 	// 아이템 수정
-	result := doc.Edit(ctx, func(api *api.ModelApi) error {
+	result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
 		// 현재 내용 가져오기
-		content, err := api.View()
+		content, err := crdtDoc.View()
 		if err != nil {
 			return fmt.Errorf("failed to get content: %w", err)
 		}
@@ -380,8 +418,25 @@ func updateItem(ctx context.Context, doc *crdtstorage.Document) {
 		itemMap[fieldName] = fieldValue
 		itemMap["lastUpdated"] = time.Now().Format(time.RFC3339)
 
-		// 루트 설정
-		api.Root(contentMap)
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value:    contentMap,
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	}, crdtstorage.WithMaxRetries(3))
 
@@ -422,9 +477,9 @@ func deleteItem(ctx context.Context, doc *crdtstorage.Document) {
 	}
 
 	// 아이템 삭제
-	result := doc.Edit(ctx, func(api *api.ModelApi) error {
+	result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
 		// 현재 내용 가져오기
-		content, err := api.View()
+		content, err := crdtDoc.View()
 		if err != nil {
 			return fmt.Errorf("failed to get content: %w", err)
 		}
@@ -442,8 +497,25 @@ func deleteItem(ctx context.Context, doc *crdtstorage.Document) {
 		}
 		contentMap["items"] = newItems
 
-		// 루트 설정
-		api.Root(contentMap)
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value:    contentMap,
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	}, crdtstorage.WithDistributedLock(true))
 
@@ -490,9 +562,9 @@ func simulateConcurrentEdits(ctx context.Context, doc *crdtstorage.Document) {
 			useTransaction := index%2 == 1
 
 			// 편집 함수 정의
-			editFunc := func(api *api.ModelApi) error {
+			editFunc := func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
 				// 현재 내용 가져오기
-				content, err := api.View()
+				content, err := crdtDoc.View()
 				if err != nil {
 					return fmt.Errorf("failed to get content: %w", err)
 				}
@@ -505,8 +577,25 @@ func simulateConcurrentEdits(ctx context.Context, doc *crdtstorage.Document) {
 				items = append(items, item)
 				contentMap["items"] = items
 
-				// 루트 설정
-				api.Root(contentMap)
+				// 루트 노드 생성
+				rootID := crdtDoc.NextTimestamp()
+				rootOp := &crdtpatch.NewOperation{
+					ID:       rootID,
+					NodeType: common.NodeTypeCon,
+					Value:    contentMap,
+				}
+
+				// 패치 생성
+				patchBuilder.AddOperation(rootOp)
+
+				// 루트 설정 작업 추가
+				rootSetOp := &crdtpatch.InsOperation{
+					ID:       crdtDoc.NextTimestamp(),
+					TargetID: common.RootID,
+					Value:    rootID,
+				}
+				patchBuilder.AddOperation(rootSetOp)
+
 				return nil
 			}
 
@@ -522,7 +611,7 @@ func simulateConcurrentEdits(ctx context.Context, doc *crdtstorage.Document) {
 				}
 			} else {
 				// 낙관적 동시성 제어 사용
-				editResult := doc.Edit(ctx, editFunc, 
+				editResult := doc.Edit(ctx, editFunc,
 					crdtstorage.WithMaxRetries(5),
 					crdtstorage.WithRetryDelay(100*time.Millisecond),
 					crdtstorage.WithExponentialBackoff(true))

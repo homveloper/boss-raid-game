@@ -8,7 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"tictactoe/luvjson/api"
+	"tictactoe/luvjson/common"
+	"tictactoe/luvjson/crdt"
 	"tictactoe/luvjson/crdtpatch"
 )
 
@@ -43,13 +44,31 @@ func TestStorage_CreateDocument(t *testing.T) {
 	assert.Equal(t, "test-doc", doc.ID)
 
 	// 초기 문서 내용 설정
-	result := doc.Edit(ctx, func(api *api.ModelApi) error {
-		api.Root(map[string]interface{}{
-			"title":    "Test Document",
-			"content":  "Test content",
-			"authors":  []string{"tester"},
-			"modified": time.Now().Format(time.RFC3339),
-		})
+	result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value: map[string]interface{}{
+				"title":    "Test Document",
+				"content":  "Test content",
+				"authors":  []string{"tester"},
+				"modified": time.Now().Format(time.RFC3339),
+			},
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	})
 	assert.True(t, result.Success)
@@ -85,13 +104,31 @@ func TestStorage_GetDocument(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 초기 문서 내용 설정
-	result := doc1.Edit(ctx, func(api *api.ModelApi) error {
-		api.Root(map[string]interface{}{
-			"title":    "Test Document",
-			"content":  "Test content",
-			"authors":  []string{"tester"},
-			"modified": time.Now().Format(time.RFC3339),
-		})
+	result := doc1.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value: map[string]interface{}{
+				"title":    "Test Document",
+				"content":  "Test content",
+				"authors":  []string{"tester"},
+				"modified": time.Now().Format(time.RFC3339),
+			},
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	})
 	assert.True(t, result.Success)
@@ -136,13 +173,31 @@ func TestStorage_DeleteDocument(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 초기 문서 내용 설정
-	result := doc.Edit(ctx, func(api *api.ModelApi) error {
-		api.Root(map[string]interface{}{
-			"title":    "Test Document",
-			"content":  "Test content",
-			"authors":  []string{"tester"},
-			"modified": time.Now().Format(time.RFC3339),
-		})
+	result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value: map[string]interface{}{
+				"title":    "Test Document",
+				"content":  "Test content",
+				"authors":  []string{"tester"},
+				"modified": time.Now().Format(time.RFC3339),
+			},
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	})
 	assert.True(t, result.Success)

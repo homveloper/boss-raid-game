@@ -74,8 +74,11 @@ func (d *Document) Edit(ctx context.Context, editFunc EditFunc, opts ...EditOpti
 		var err error
 		var patch *crdtpatch.Patch
 
+		// 패치 빌더 초기화
+		d.PatchBuilder = crdtpatch.NewPatchBuilder(d.SessionID, d.CRDTDoc.NextTimestamp().Counter)
+
 		// 편집 작업 수행
-		if err = editFunc(d.Model.GetApi()); err != nil {
+		if err = editFunc(d.CRDTDoc, d.PatchBuilder); err != nil {
 			d.mutex.Unlock()
 			result.Error = fmt.Errorf("edit function failed: %w", err)
 
@@ -87,7 +90,7 @@ func (d *Document) Edit(ctx context.Context, editFunc EditFunc, opts ...EditOpti
 		}
 
 		// 변경사항 패치 생성
-		patch = d.Model.GetApi().Flush()
+		patch = d.PatchBuilder.Flush()
 
 		// 트랜잭션 ID 생성 및 메타데이터에 추가
 		transactionID := uuid.New().String()

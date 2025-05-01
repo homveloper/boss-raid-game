@@ -25,13 +25,7 @@ type MemoryPersistence struct {
 	mutex sync.RWMutex
 }
 
-// NewMemoryPersistence는 새 메모리 영구 저장소를 생성합니다.
-func NewMemoryPersistence() *MemoryPersistence {
-	return &MemoryPersistence{
-		documents:       make(map[string][]byte),
-		documentKeyFunc: DefaultDocumentKeyFunc,
-	}
-}
+// MemoryPersistence 생성자는 persistence_factory.go로 이동되었습니다.
 
 // GetDocumentKeyFunc는 문서 키 생성 함수를 반환합니다.
 func (p *MemoryPersistence) GetDocumentKeyFunc() DocumentKeyFunc {
@@ -209,23 +203,7 @@ type FilePersistence struct {
 	mutex sync.RWMutex
 }
 
-// NewFilePersistence는 새 파일 영구 저장소를 생성합니다.
-func NewFilePersistence(basePath string) (*FilePersistence, error) {
-	// 기본 경로가 비어 있으면 현재 디렉토리 사용
-	if basePath == "" {
-		basePath = "documents"
-	}
-
-	// 디렉토리 생성
-	if err := os.MkdirAll(basePath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	return &FilePersistence{
-		basePath:        basePath,
-		documentKeyFunc: DefaultDocumentKeyFunc,
-	}, nil
-}
+// FilePersistence 생성자는 persistence_factory.go로 이동되었습니다.
 
 // GetDocumentKeyFunc는 문서 키 생성 함수를 반환합니다.
 func (p *FilePersistence) GetDocumentKeyFunc() DocumentKeyFunc {
@@ -451,14 +429,7 @@ type RedisPersistence struct {
 	mutex sync.RWMutex
 }
 
-// NewRedisPersistence는 새 Redis 영구 저장소를 생성합니다.
-func NewRedisPersistence(client *redis.Client, keyPrefix string) *RedisPersistence {
-	return &RedisPersistence{
-		client:          client,
-		keyPrefix:       keyPrefix,
-		documentKeyFunc: PrefixedDocumentKeyFunc(keyPrefix),
-	}
-}
+// RedisPersistence 생성자는 persistence_factory.go로 이동되었습니다.
 
 // GetDocumentKeyFunc는 문서 키 생성 함수를 반환합니다.
 func (p *RedisPersistence) GetDocumentKeyFunc() DocumentKeyFunc {

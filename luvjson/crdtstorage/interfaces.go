@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"tictactoe/luvjson/api"
 	"tictactoe/luvjson/common"
+	"tictactoe/luvjson/crdt"
 	"tictactoe/luvjson/crdtpatch"
 	"tictactoe/luvjson/crdtpubsub"
 	"tictactoe/luvjson/crdtsync"
@@ -45,8 +45,11 @@ type Document struct {
 	// ID는 문서의 고유 식별자입니다.
 	ID string
 
-	// Model은 CRDT 문서의 API 모델입니다.
-	Model *api.Model
+	// CRDTDoc은 기본 CRDT 문서입니다.
+	CRDTDoc *crdt.Document
+
+	// PatchBuilder는 패치 생성을 위한 빌더입니다.
+	PatchBuilder *crdtpatch.PatchBuilder
 
 	// SyncManager는 문서 동기화를 관리합니다.
 	SyncManager crdtsync.SyncManager
@@ -97,45 +100,6 @@ type Document struct {
 	// activeTransaction은 현재 진행 중인 트랜잭션 ID입니다.
 	// 하나의 문서에 대해 한 번에 하나의 트랜잭션만 허용됩니다.
 	activeTransaction string
-}
-
-// StorageOptions는 저장소 옵션을 나타냅니다.
-type StorageOptions struct {
-	// PubSubType은 사용할 PubSub 유형입니다.
-	PubSubType string
-
-	// RedisAddr은 Redis 서버 주소입니다.
-	RedisAddr string
-
-	// KeyPrefix는 Redis 키 접두사입니다.
-	KeyPrefix string
-
-	// SyncInterval은 동기화 간격입니다.
-	SyncInterval time.Duration
-
-	// AutoSave는 자동 저장 활성화 여부입니다.
-	AutoSave bool
-
-	// AutoSaveInterval은 자동 저장 간격입니다.
-	AutoSaveInterval time.Duration
-
-	// PersistenceType은 영구 저장소 유형입니다.
-	PersistenceType string
-
-	// PersistencePath는 영구 저장소 경로입니다.
-	PersistencePath string
-
-	// EnableDistributedLock은 분산 락 활성화 여부입니다.
-	// 분산 환경에서 트랜잭션을 보장하는 데 사용됩니다.
-	EnableDistributedLock bool
-
-	// DistributedLockTimeout은 분산 락 타임아웃입니다.
-	// 분산 락을 활성화한 경우에만 사용됩니다.
-	DistributedLockTimeout time.Duration
-
-	// EnableTransactionTracking은 트랜잭션 추적 활성화 여부입니다.
-	// 분산 환경에서 트랜잭션을 추적하고 관리하는 데 사용됩니다.
-	EnableTransactionTracking bool
 }
 
 // DocumentOptions는 문서 옵션을 나타냅니다.
@@ -214,4 +178,4 @@ type PersistenceProvider interface {
 }
 
 // EditFunc는 문서 편집 함수 타입입니다.
-type EditFunc func(*api.ModelApi) error
+type EditFunc func(*crdt.Document, *crdtpatch.PatchBuilder) error

@@ -3,6 +3,7 @@ package crdtstorage
 import (
 	"context"
 	"fmt"
+	"tictactoe/luvjson/crdtpatch"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,8 +103,11 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 		return result
 	}
 
+	// 패치 빌더 초기화
+	d.PatchBuilder = crdtpatch.NewPatchBuilder(d.SessionID, d.CRDTDoc.NextTimestamp().Counter)
+
 	// 편집 함수 실행
-	if err := editFunc(d.Model.GetApi()); err != nil {
+	if err := editFunc(d.CRDTDoc, d.PatchBuilder); err != nil {
 		result.Error = fmt.Errorf("edit function failed: %w", err)
 
 		// 트랜잭션 실패 마커 생성 및 적용
@@ -121,7 +125,7 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 	}
 
 	// 변경사항 패치 생성
-	patch := d.Model.GetApi().Flush()
+	patch := d.PatchBuilder.Flush()
 
 	// 트랜잭션 ID를 메타데이터에 추가
 	metadata := patch.Metadata()

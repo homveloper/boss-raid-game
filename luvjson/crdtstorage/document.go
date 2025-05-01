@@ -9,74 +9,20 @@ import (
 	"tictactoe/luvjson/crdtpatch"
 )
 
-// DocumentData는 문서 직렬화 데이터를 나타냅니다.
-type DocumentData struct {
-	// ID는 문서의 고유 식별자입니다.
-	ID string `json:"id"`
-
-	// Content는 문서 내용의 JSON 표현입니다.
-	Content json.RawMessage `json:"content"`
-
-	// LastModified는 문서가 마지막으로 수정된 시간입니다.
-	LastModified time.Time `json:"last_modified"`
-
-	// Metadata는 문서 메타데이터입니다.
-	Metadata map[string]interface{} `json:"metadata"`
-
-	// Version은 문서 버전입니다.
-	Version int `json:"version"`
-}
-
 // serialize는 문서를 바이트 배열로 직렬화합니다.
+// 이 메서드는 하위 호환성을 위해 유지됩니다.
+// 새 코드에서는 DocumentSerializer 인터페이스를 사용하세요.
 func (d *Document) serialize() ([]byte, error) {
-	// 문서 내용 가져오기
-	content, err := d.Model.View()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get document view: %w", err)
-	}
-
-	// 내용을 JSON으로 마샬링
-	contentJSON, err := json.Marshal(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal content: %w", err)
-	}
-
-	// 문서 데이터 생성
-	data := DocumentData{
-		ID:           d.ID,
-		Content:      contentJSON,
-		LastModified: d.LastModified,
-		Metadata:     d.Metadata,
-		Version:      1, // 현재는 항상 버전 1
-	}
-
-	// 문서 데이터를 JSON으로 마샬링
-	return json.Marshal(data)
+	serializer := NewDefaultDocumentSerializer()
+	return serializer.Serialize(d)
 }
 
 // deserialize는 바이트 배열에서 문서를 역직렬화합니다.
+// 이 메서드는 하위 호환성을 위해 유지됩니다.
+// 새 코드에서는 DocumentSerializer 인터페이스를 사용하세요.
 func (d *Document) deserialize(data []byte) error {
-	// 문서 데이터 언마샬링
-	var docData DocumentData
-	if err := json.Unmarshal(data, &docData); err != nil {
-		return fmt.Errorf("failed to unmarshal document data: %w", err)
-	}
-
-	// 문서 필드 설정
-	d.ID = docData.ID
-	d.LastModified = docData.LastModified
-	d.Metadata = docData.Metadata
-
-	// 내용 언마샬링
-	var content interface{}
-	if err := json.Unmarshal(docData.Content, &content); err != nil {
-		return fmt.Errorf("failed to unmarshal content: %w", err)
-	}
-
-	// 문서 내용 설정
-	d.Model.GetApi().Root(content)
-
-	return nil
+	serializer := NewDefaultDocumentSerializer()
+	return serializer.Deserialize(d, data)
 }
 
 // Save는 문서를 저장합니다.
@@ -85,13 +31,8 @@ func (d *Document) Save(ctx context.Context) error {
 	d.LastModified = time.Now()
 
 	// 저장소에 저장
-	// storageImpl의 saveDocument 메서드를 직접 호출하는 대신 저장소에 저장 기능 구현
-
-	// 저장소에 저장
-	// 이 구현은 임시적으로 이전 인터페이스와의 호환성을 유지하기 위한 것입니다.
-	// 실제 애플리케이션에서는 저장소 구현체에 맞는 저장 메서드를 사용해야 합니다.
 	if storageImpl, ok := d.storage.(*storageImpl); ok {
-		return storageImpl.persistence.SaveDocument(ctx, d)
+		return storageImpl.saveDocument(ctx, d)
 	}
 
 	return fmt.Errorf("unsupported storage implementation")
@@ -121,13 +62,13 @@ func (d *Document) OnChange(callback func(*Document, *crdtpatch.Patch)) {
 
 // GetContent는 문서 내용을 반환합니다.
 func (d *Document) GetContent() (interface{}, error) {
-	return d.Model.View()
+	return d.CRDTDoc.View()
 }
 
 // GetContentAs는 문서 내용을 지정된 타입으로 변환하여 반환합니다.
 func (d *Document) GetContentAs(target interface{}) error {
 	// 문서 내용 가져오기
-	content, err := d.Model.View()
+	content, err := d.CRDTDoc.View()
 	if err != nil {
 		return fmt.Errorf("failed to get document view: %w", err)
 	}

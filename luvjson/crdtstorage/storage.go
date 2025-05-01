@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-redis/redis/v8"
 
-	"tictactoe/luvjson/api"
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
 	"tictactoe/luvjson/crdtpatch"
@@ -23,6 +22,8 @@ func DefaultStorageOptions() *StorageOptions {
 	return &StorageOptions{
 		PubSubType:                "memory",
 		RedisAddr:                 "localhost:6379",
+		RedisPassword:             "",
+		RedisDB:                   0,
 		KeyPrefix:                 "luvjson",
 		SyncInterval:              time.Minute,
 		AutoSave:                  true,
@@ -32,6 +33,8 @@ func DefaultStorageOptions() *StorageOptions {
 		EnableDistributedLock:     false,
 		DistributedLockTimeout:    time.Minute,
 		EnableTransactionTracking: false,
+		SyncMethod:                "pubsub",
+		MaxStreamLength:           10000,
 	}
 }
 
@@ -55,8 +58,8 @@ type storageImpl struct {
 	// pubsub은 PubSub 인스턴스입니다.
 	pubsub crdtpubsub.PubSub
 
-	// persistence는 영구 저장소 인스턴스입니다.
-	persistence PersistenceProvider
+	// persistence는 영구 저장소 어댑터입니다.
+	persistence PersistenceAdapter
 
 	// documents는 현재 로드된 문서 맵입니다.
 	documents map[string]*Document
@@ -80,6 +83,9 @@ type storageImpl struct {
 	// transactionManager는 트랜잭션 관리자입니다.
 	// 분산 환경에서 트랜잭션을 추적하고 관리하는 데 사용됩니다.
 	transactionManager TransactionManager
+
+	// serializer는 문서 직렬화/역직렬화를 담당합니다.
+	serializer DocumentSerializer
 }
 
 // NewStorage는 새 저장소를 생성합니다.
@@ -88,7 +94,7 @@ func NewStorage(ctx context.Context, options *StorageOptions) (Storage, error) {
 }
 
 // NewStorageWithCustomPersistence는 사용자 정의 영구 저장소를 사용하여 새 저장소를 생성합니다.
-func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOptions, customPersistence PersistenceProvider) (Storage, error) {
+func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOptions, customPersistence PersistenceAdapter) (Storage, error) {
 	if options == nil {
 		options = DefaultStorageOptions()
 	}
@@ -98,10 +104,11 @@ func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOption
 
 	// 저장소 인스턴스 생성
 	storage := &storageImpl{
-		options:   options,
-		documents: make(map[string]*Document),
-		ctx:       storageCtx,
-		cancel:    cancel,
+		options:    options,
+		documents:  make(map[string]*Document),
+		ctx:        storageCtx,
+		cancel:     cancel,
+		serializer: NewDefaultDocumentSerializer(),
 	}
 
 	// PubSub 생성
@@ -113,11 +120,11 @@ func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOption
 	storage.pubsub = pubsub
 
 	// 영구 저장소 생성
-	persistence, err := createPersistenceProvider(storageCtx, options, customPersistence)
+	persistence, err := createPersistenceAdapter(storageCtx, options, customPersistence)
 	if err != nil {
 		cancel()
 		pubsub.Close()
-		return nil, fmt.Errorf("failed to create persistence provider: %w", err)
+		return nil, fmt.Errorf("failed to create persistence adapter: %w", err)
 	}
 	storage.persistence = persistence
 
@@ -125,7 +132,9 @@ func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOption
 	if options.PubSubType == "redis" || options.PersistenceType == "redis" {
 		// Redis 클라이언트 생성
 		redisClient := redis.NewClient(&redis.Options{
-			Addr: options.RedisAddr,
+			Addr:     options.RedisAddr,
+			Password: options.RedisPassword,
+			DB:       options.RedisDB,
 		})
 
 		// Redis 연결 테스트
@@ -169,7 +178,9 @@ func createPubSub(ctx context.Context, options *StorageOptions) (crdtpubsub.PubS
 	case "redis":
 		// Redis 클라이언트 생성
 		redisClient := redis.NewClient(&redis.Options{
-			Addr: options.RedisAddr,
+			Addr:     options.RedisAddr,
+			Password: options.RedisPassword,
+			DB:       options.RedisDB,
 		})
 
 		// Redis 연결 테스트
@@ -186,37 +197,7 @@ func createPubSub(ctx context.Context, options *StorageOptions) (crdtpubsub.PubS
 	}
 }
 
-// createPersistenceProvider는 영구 저장소 인스턴스를 생성합니다.
-func createPersistenceProvider(ctx context.Context, options *StorageOptions, customPersistence PersistenceProvider) (PersistenceProvider, error) {
-	// 사용자 정의 영구 저장소가 있는 경우 사용
-	if customPersistence != nil {
-		return customPersistence, nil
-	}
-
-	// 기본 영구 저장소 생성
-	switch options.PersistenceType {
-	case "memory":
-		return NewMemoryPersistence(), nil
-	case "file":
-		return NewFilePersistence(options.PersistencePath)
-	case "redis":
-		// Redis 클라이언트 생성
-		redisClient := redis.NewClient(&redis.Options{
-			Addr: options.RedisAddr,
-		})
-
-		// Redis 연결 테스트
-		if err := redisClient.Ping(ctx).Err(); err != nil {
-			return nil, fmt.Errorf("failed to connect to Redis: %w", err)
-		}
-
-		return NewRedisPersistence(redisClient, options.KeyPrefix), nil
-	case "custom":
-		return nil, fmt.Errorf("custom persistence type requires a custom persistence provider")
-	default:
-		return nil, fmt.Errorf("unsupported persistence type: %s", options.PersistenceType)
-	}
-}
+// 이 함수는 persistence_factory.go 파일로 이동되었습니다.
 
 // CreateDocument는 새 문서를 생성합니다.
 func (s *storageImpl) CreateDocument(ctx context.Context, documentID string) (*Document, error) {
@@ -234,8 +215,8 @@ func (s *storageImpl) CreateDocument(ctx context.Context, documentID string) (*D
 	// CRDT 문서 생성
 	crdtDoc := crdt.NewDocument(sessionID)
 
-	// API 모델 생성
-	model := api.NewModelWithDocument(crdtDoc)
+	// 패치 빌더 생성
+	patchBuilder := crdtpatch.NewPatchBuilder(sessionID, crdtDoc.NextTimestamp().Counter)
 
 	// 문서 컨텍스트 생성
 	docCtx, docCancel := context.WithCancel(s.ctx)
@@ -243,7 +224,8 @@ func (s *storageImpl) CreateDocument(ctx context.Context, documentID string) (*D
 	// 문서 인스턴스 생성
 	doc := &Document{
 		ID:                documentID,
-		Model:             model,
+		CRDTDoc:           crdtDoc,
+		PatchBuilder:      patchBuilder,
 		SessionID:         sessionID,
 		LastModified:      time.Now(),
 		Metadata:          make(map[string]interface{}),
@@ -304,7 +286,7 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 	}
 
 	// 영구 저장소에서 문서 데이터 로드
-	data, err := s.persistence.LoadDocumentByID(ctx, documentID)
+	data, err := s.persistence.LoadDocument(ctx, documentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load document: %w", err)
 	}
@@ -315,8 +297,8 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 	// CRDT 문서 생성
 	crdtDoc := crdt.NewDocument(sessionID)
 
-	// API 모델 생성
-	model := api.NewModelWithDocument(crdtDoc)
+	// 패치 빌더 생성
+	patchBuilder := crdtpatch.NewPatchBuilder(sessionID, crdtDoc.NextTimestamp().Counter)
 
 	// 문서 컨텍스트 생성
 	docCtx, docCancel := context.WithCancel(s.ctx)
@@ -324,7 +306,8 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 	// 문서 인스턴스 생성
 	doc = &Document{
 		ID:                documentID,
-		Model:             model,
+		CRDTDoc:           crdtDoc,
+		PatchBuilder:      patchBuilder,
 		SessionID:         sessionID,
 		LastModified:      time.Now(),
 		Metadata:          make(map[string]interface{}),
@@ -341,7 +324,7 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 	}
 
 	// 문서 데이터 역직렬화
-	if err := doc.deserialize(data); err != nil {
+	if err := s.serializer.Deserialize(doc, data); err != nil {
 		docCancel()
 		return nil, fmt.Errorf("failed to deserialize document: %w", err)
 	}
@@ -380,7 +363,7 @@ func (s *storageImpl) DeleteDocument(ctx context.Context, documentID string) err
 	}
 
 	// 영구 저장소에서 문서 삭제
-	return s.persistence.DeleteDocumentByID(ctx, documentID)
+	return s.persistence.DeleteDocument(ctx, documentID)
 }
 
 // SyncDocument는 특정 문서를 동기화합니다.
@@ -467,45 +450,47 @@ func (s *storageImpl) saveDocument(ctx context.Context, doc *Document) error {
 
 // setupSyncManager는 문서의 동기화 매니저를 설정합니다.
 func (s *storageImpl) setupSyncManager(doc *Document) error {
-	// 브로드캐스터 생성
-	broadcaster := crdtsync.NewPubSubBroadcaster(
-		s.pubsub,
-		fmt.Sprintf("%s-patches", doc.ID),
-		crdtpubsub.EncodingFormatJSON,
-		doc.SessionID,
-	)
 
-	// 패치 저장소 생성
-	patchStore := crdtsync.NewMemoryPatchStore()
+	// 동기화 옵션 생성
+	syncOptions := crdtsync.DefaultSyncOptions()
 
-	// 상태 벡터 생성
-	stateVector := crdtsync.NewStateVector()
-
-	// 피어 발견 생성
-	var peerDiscovery crdtsync.PeerDiscovery
-	if s.options.PubSubType == "redis" && s.redisClient != nil {
-		// Redis 피어 발견 생성
-		peerDiscovery = crdtsync.NewRedisPeerDiscovery(s.redisClient, doc.ID, doc.SessionID.String()[:8])
-		if err := peerDiscovery.(*crdtsync.RedisPeerDiscovery).Start(doc.ctx); err != nil {
-			return fmt.Errorf("failed to start peer discovery: %w", err)
+	// PubSub 유형에 따라 동기화 유형 설정
+	switch s.options.PubSubType {
+	case "memory":
+		syncOptions.SyncType = crdtsync.SyncTypeMemory
+	case "redis":
+		if s.options.SyncMethod == "streams" {
+			syncOptions.SyncType = crdtsync.SyncTypeRedisStreams
+		} else {
+			syncOptions.SyncType = crdtsync.SyncTypeRedisPubSub
 		}
-	} else {
-		// 더미 피어 발견 생성
-		peerDiscovery = &dummyPeerDiscovery{}
+	default:
+		syncOptions.SyncType = crdtsync.SyncTypeMemory
 	}
 
-	// 싱커 생성
-	syncer := crdtsync.NewPubSubSyncer(
-		s.pubsub,
-		fmt.Sprintf("%s-sync", doc.ID),
-		doc.SessionID.String()[:8],
-		stateVector,
-		patchStore,
-		crdtpubsub.EncodingFormatJSON,
-	)
+	// Redis 설정
+	if s.redisClient != nil {
+		syncOptions.RedisAddr = s.options.RedisAddr
+		syncOptions.RedisPassword = s.options.RedisPassword
+		syncOptions.RedisDB = s.options.RedisDB
+	}
+
+	// 인코딩 형식 설정
+	syncOptions.EncodingFormat = crdtpubsub.EncodingFormatJSON
+
+	// 최대 스트림 길이 설정
+	syncOptions.MaxStreamLength = s.options.MaxStreamLength
 
 	// 동기화 매니저 생성
-	syncManager := crdtsync.NewSyncManager(doc.Model.GetDocument(), broadcaster, syncer, peerDiscovery, patchStore)
+	syncManager, err := crdtsync.CreateSyncManager(
+		doc.ctx,
+		doc.CRDTDoc,
+		doc.ID,
+		syncOptions,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create sync manager: %w", err)
+	}
 
 	// 동기화 매니저 시작
 	if err := syncManager.Start(doc.ctx); err != nil {
@@ -521,7 +506,7 @@ func (s *storageImpl) setupSyncManager(doc *Document) error {
 // createLockManager는 분산 락 관리자를 생성합니다.
 func createLockManager(redisClient *redis.Client, options *StorageOptions) DistributedLockManager {
 	// Redis 클라이언트를 RedisClient 인터페이스로 래핑
-	client := &redisClientWrapper{redisClient}
+	client := NewRedisClientAdapter(redisClient)
 
 	// Redis 분산 락 관리자 생성
 	return NewRedisDistributedLockManager(client)
@@ -530,45 +515,10 @@ func createLockManager(redisClient *redis.Client, options *StorageOptions) Distr
 // createTransactionManager는 트랜잭션 관리자를 생성합니다.
 func createTransactionManager(redisClient *redis.Client, lockManager DistributedLockManager, options *StorageOptions) TransactionManager {
 	// Redis 클라이언트를 RedisClient 인터페이스로 래핑
-	client := &redisClientWrapper{redisClient}
+	client := NewRedisClientAdapter(redisClient)
 
 	// Redis 트랜잭션 관리자 생성
 	return NewRedisTransactionManager(client, lockManager, options.KeyPrefix)
-}
-
-// redisClientWrapper는 Redis 클라이언트를 RedisClient 인터페이스로 래핑합니다.
-type redisClientWrapper struct {
-	client *redis.Client
-}
-
-// SetNX는 키가 존재하지 않는 경우에만 값을 설정합니다.
-func (w *redisClientWrapper) SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error) {
-	return w.client.SetNX(ctx, key, value, expiration).Result()
-}
-
-// Eval은 Lua 스크립트를 실행합니다.
-func (w *redisClientWrapper) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
-	return w.client.Eval(ctx, script, keys, args...).Result()
-}
-
-// Del은 키를 삭제합니다.
-func (w *redisClientWrapper) Del(ctx context.Context, keys ...string) (int64, error) {
-	return w.client.Del(ctx, keys...).Result()
-}
-
-// Expire는 키의 만료 시간을 설정합니다.
-func (w *redisClientWrapper) Expire(ctx context.Context, key string, expiration time.Duration) (bool, error) {
-	return w.client.Expire(ctx, key, expiration).Result()
-}
-
-// Get은 키의 값을 가져옵니다.
-func (w *redisClientWrapper) Get(ctx context.Context, key string) (string, error) {
-	return w.client.Get(ctx, key).Result()
-}
-
-// Set은 키에 값을 설정합니다.
-func (w *redisClientWrapper) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
-	return w.client.Set(ctx, key, value, expiration).Err()
 }
 
 // dummyPeerDiscovery는 더미 피어 발견 구현입니다.

@@ -1,6 +1,7 @@
 package crdtsync
 
 import (
+	"fmt"
 	"sync"
 
 	"tictactoe/luvjson/common"
@@ -22,7 +23,7 @@ type MemoryPatchStore struct {
 // NewMemoryPatchStore는 새 메모리 패치 저장소를 생성합니다.
 func NewMemoryPatchStore() *MemoryPatchStore {
 	return &MemoryPatchStore{
-		patches:         make(map[string]*crdtpatch.Patch),
+		patches:          make(map[string]*crdtpatch.Patch),
 		patchesBySession: make(map[string][]common.LogicalTimestamp),
 	}
 }
@@ -90,7 +91,7 @@ func (ps *MemoryPatchStore) GetPatch(id common.LogicalTimestamp) (*crdtpatch.Pat
 		return patch.Clone(), nil
 	}
 
-	return nil, common.ErrNotFound{Message: "patch not found"}
+	return nil, common.ErrNotFound{Message: fmt.Sprintf("patch %s", idStr)}
 }
 
 // Close는 패치 저장소를 종료합니다.

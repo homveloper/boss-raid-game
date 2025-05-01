@@ -57,3 +57,12 @@ type ErrInvalidNode struct {
 func (e ErrInvalidNode) Error() string {
 	return fmt.Sprintf("invalid node: %s", e.Message)
 }
+
+// ErrNotFound is returned when a resource is not found.
+type ErrNotFound struct {
+	Message string
+}
+
+func (e ErrNotFound) Error() string {
+	return fmt.Sprintf("not found: %s", e.Message)
+}

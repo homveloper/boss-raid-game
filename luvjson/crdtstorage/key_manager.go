@@ -1,9 +1,5 @@
 package crdtstorage
 
-import (
-	"context"
-)
-
 // KeyType은 키의 유형을 나타냅니다.
 type KeyType string
 
