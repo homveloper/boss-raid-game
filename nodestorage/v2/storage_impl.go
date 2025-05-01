@@ -2,6 +2,7 @@ package v2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -590,34 +591,6 @@ func getDocumentID[T Cachable[T]](data T) (primitive.ObjectID, error) {
 
 // generateDiff generates a diff between two documents
 func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
-	// Convert documents to JSON for comparison
-	oldJSON, err := bson.Marshal(oldDoc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal old document: %w", err)
-	}
-
-	newJSON, err := bson.Marshal(newDoc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal new document: %w", err)
-	}
-
-	// Check if the documents are identical
-	hasChanges := string(oldJSON) != string(newJSON)
-
-	// If no changes, return a simple diff with HasChanges=false
-	if !hasChanges {
-		return &Diff{
-			HasChanges: false,
-			MergePatch: nil,
-			BsonPatch:  nil,
-		}, nil
-	}
-
-	// Generate JSON Merge Patch (RFC 7396)
-	mergePatch, err := jsonpatch.CreateMergePatch(oldJSON, newJSON)
-	if err != nil {
-		core.Warn("Failed to create JSON merge patch", zap.Error(err))
-	}
 
 	// Generate MongoDB BSON patch (original implementation)
 	bsonPatch, err := CreateBsonPatch(oldDoc, newDoc)
@@ -626,9 +599,34 @@ func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
 		// Continue even if BSON patch creation fails
 	}
 
+	if bsonPatch.IsEmpty() {
+		return &Diff{
+			HasChanges: false,
+			MergePatch: nil,
+			BsonPatch:  nil,
+		}, nil
+	}
+
+	// Convert documents to JSON for comparison
+	oldJSON, err := json.Marshal(oldDoc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal old document: %w", err)
+	}
+
+	newJSON, err := json.Marshal(newDoc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal new document: %w", err)
+	}
+
+	// Generate JSON Merge Patch (RFC 7396)
+	mergePatch, err := jsonpatch.CreateMergePatch(oldJSON, newJSON)
+	if err != nil {
+		core.Warn("Failed to create JSON merge patch", zap.Error(err))
+	}
+
 	// Create diff object with all patch formats
 	return &Diff{
-		HasChanges: true,
+		HasChanges: bsonPatch.IsEmpty(),
 		MergePatch: mergePatch,
 		BsonPatch:  bsonPatch,
 	}, nil
