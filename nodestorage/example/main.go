@@ -189,7 +189,7 @@ func main() {
 			for event := range ch {
 				nstlog.Debug("Watcher event", zap.Int("watcherID", id), zap.String("operation", event.Operation), zap.String("documentID", event.ID.Hex()))
 				if event.Diff != nil {
-					nstlog.Debug("Watcher %d - Changes", zap.Int("watcherID", id), zap.Int("changes", len(event.Diff.Operations)))
+					nstlog.Debug("Watcher %d - Changes", zap.Int("watcherID", id), zap.Int("changes", len(event.Diff.JSONPatch)))
 				}
 			}
 			nstlog.Debug("Watcher channel closed", zap.Int("watcherID", id))
@@ -275,7 +275,7 @@ func simulateNode(ctx context.Context, storage nodestorage.Storage[*UserInventor
 		nstlog.Debug("Node %d : Successfully edited document",
 			zap.Int("nodeID", nodeID),
 			zap.Int64("version", updatedInventory.Version_),
-			zap.Int("changes", len(diff.Operations)),
+			zap.Int("changes", len(diff.JSONPatch)),
 			zap.Int("currentGold", updatedInventory.Gold),
 			zap.Int("i", i),
 			zap.Int("i%3", i%3))
