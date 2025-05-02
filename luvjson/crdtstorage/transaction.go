@@ -107,16 +107,20 @@ func (m *RedisTransactionManager) BeginTransaction(ctx context.Context, document
 	}
 
 	// 마커 직렬화
-	markerJSON, err := json.Marshal(marker)
+	markerBytes, err := json.Marshal(marker)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal transaction marker: %w", err)
 	}
 
 	// 트랜잭션 저장
 	txKey := m.getTransactionKey(transactionID)
-	err = m.client.SetNX(ctx, txKey, string(markerJSON), 30*time.Minute)
+	success, err := m.client.SetNX(ctx, txKey, string(markerBytes), 30*time.Minute)
 	if err != nil {
 		return "", fmt.Errorf("failed to save transaction: %w", err)
+	}
+
+	if !success {
+		return "", fmt.Errorf("transaction key already exists: %s", txKey)
 	}
 
 	return transactionID, nil
@@ -154,13 +158,13 @@ func (m *RedisTransactionManager) CommitTransaction(ctx context.Context, transac
 	marker.Timestamp = time.Now()
 
 	// 마커 직렬화
-	markerJSON, err = json.Marshal(marker)
+	markerBytes, err := json.Marshal(marker)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal transaction marker: %w", err)
 	}
 
 	// 트랜잭션 업데이트
-	err = m.client.Set(ctx, txKey, string(markerJSON), 30*time.Minute)
+	err = m.client.Set(ctx, txKey, string(markerBytes), 30*time.Minute)
 	if err != nil {
 		return false, fmt.Errorf("failed to update transaction: %w", err)
 	}
@@ -200,13 +204,13 @@ func (m *RedisTransactionManager) AbortTransaction(ctx context.Context, transact
 	marker.Timestamp = time.Now()
 
 	// 마커 직렬화
-	markerJSON, err = json.Marshal(marker)
+	markerBytes, err := json.Marshal(marker)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal transaction marker: %w", err)
 	}
 
 	// 트랜잭션 업데이트
-	err = m.client.Set(ctx, txKey, string(markerJSON), 30*time.Minute)
+	err = m.client.Set(ctx, txKey, string(markerBytes), 30*time.Minute)
 	if err != nil {
 		return false, fmt.Errorf("failed to update transaction: %w", err)
 	}

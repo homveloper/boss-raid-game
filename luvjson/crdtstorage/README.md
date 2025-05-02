@@ -163,6 +163,119 @@ if err := storage.DeleteDocument(ctx, "example-doc"); err != nil {
 
 ## 저장소 유형
 
+### 저장소 타입 클래스 다이어그램
+
+```mermaid
+classDiagram
+    class Storage {
+        <<interface>>
+        +CreateDocument(ctx, documentID) Document
+        +GetDocument(ctx, documentID) Document
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +SyncDocument(ctx, documentID, peerID) error
+        +SyncAllDocuments(ctx, peerID) error
+        +Close() error
+    }
+
+    class storageImpl {
+        -options *StorageOptions
+        -pubsub PubSub
+        -persistence PersistenceAdapter
+        -documents map[string]*Document
+        -mutex sync.RWMutex
+        +CreateDocument(ctx, documentID) Document
+        +GetDocument(ctx, documentID) Document
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +SyncDocument(ctx, documentID, peerID) error
+        +SyncAllDocuments(ctx, peerID) error
+        +Close() error
+    }
+
+    class PersistenceAdapter {
+        <<interface>>
+        +SaveDocument(ctx, doc) error
+        +LoadDocument(ctx, documentID) ([]byte, error)
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +Close() error
+    }
+
+    class MemoryAdapter {
+        -documents map[string][]byte
+        -mutex sync.RWMutex
+        +SaveDocument(ctx, doc) error
+        +LoadDocument(ctx, documentID) ([]byte, error)
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +Close() error
+    }
+
+    class FileAdapter {
+        -basePath string
+        -serializer DocumentSerializer
+        -mutex sync.RWMutex
+        +SaveDocument(ctx, doc) error
+        +LoadDocument(ctx, documentID) ([]byte, error)
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +Close() error
+    }
+
+    class RedisAdapter {
+        -client *redis.Client
+        -keyPrefix string
+        -serializer DocumentSerializer
+        -mutex sync.RWMutex
+        +SaveDocument(ctx, doc) error
+        +LoadDocument(ctx, documentID) ([]byte, error)
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +Close() error
+    }
+
+    class SQLAdapter {
+        -db *sql.DB
+        -tableName string
+        -serializer DocumentSerializer
+        -mutex sync.RWMutex
+        +SaveDocument(ctx, doc) error
+        +LoadDocument(ctx, documentID) ([]byte, error)
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +Close() error
+    }
+
+    class MongoDBAdapter {
+        -collection *mongo.Collection
+        -serializer DocumentSerializer
+        -mutex sync.RWMutex
+        +SaveDocument(ctx, doc) error
+        +LoadDocument(ctx, documentID) ([]byte, error)
+        +ListDocuments(ctx) []string
+        +DeleteDocument(ctx, documentID) error
+        +Close() error
+    }
+
+    class DocumentSerializer {
+        <<interface>>
+        +Serialize(doc) ([]byte, error)
+        +Deserialize(doc, data) error
+        +ToMap(doc) (map[string]interface{}, error)
+        +FromMap(doc, data) error
+    }
+
+    Storage <|.. storageImpl
+    PersistenceAdapter <|.. MemoryAdapter
+    PersistenceAdapter <|.. FileAdapter
+    PersistenceAdapter <|.. RedisAdapter
+    PersistenceAdapter <|.. SQLAdapter
+    PersistenceAdapter <|.. MongoDBAdapter
+    storageImpl --> PersistenceAdapter
+    storageImpl --> DocumentSerializer
+```
+
 ### 메모리 저장소
 
 메모리 저장소는 문서를 메모리에 저장합니다. 프로그램이 종료되면 모든 데이터가 손실됩니다.
@@ -295,6 +408,62 @@ CRDTStorage는 다음과 같은 동기화 메커니즘을 사용합니다:
 
 ## 아키텍처
 
+### 시스템 아키텍처 다이어그램
+
+```mermaid
+graph TD
+    Client[클라이언트 애플리케이션] --> Storage[Storage 인터페이스]
+
+    %% 주요 컴포넌트
+    Storage --> StorageImpl[storageImpl]
+    StorageImpl --> Document[Document]
+    Document --> CRDTDoc[CRDT Document]
+    Document --> PatchBuilder[Patch Builder]
+    Document --> SyncManager[Sync Manager]
+
+    %% 저장소 어댑터
+    StorageImpl --> PersistenceAdapter[Persistence Adapter]
+    PersistenceAdapter --> MemoryAdapter[Memory Adapter]
+    PersistenceAdapter --> FileAdapter[File Adapter]
+    PersistenceAdapter --> RedisAdapter[Redis Adapter]
+    PersistenceAdapter --> SQLAdapter[SQL Adapter]
+    PersistenceAdapter --> MongoDBAdapter[MongoDB Adapter]
+    PersistenceAdapter --> CustomAdapter[사용자 정의 어댑터]
+
+    %% 직렬화/역직렬화
+    Document --> DocumentSerializer[Document Serializer]
+    DocumentSerializer --> DefaultSerializer[Default Serializer]
+
+    %% 동기화 메커니즘
+    StorageImpl --> PubSub[PubSub]
+    PubSub --> MemoryPubSub[Memory PubSub]
+    PubSub --> RedisPubSub[Redis PubSub]
+
+    %% 분산 시스템 지원
+    StorageImpl --> LockManager[분산 락 관리자]
+    StorageImpl --> TransactionManager[트랜잭션 관리자]
+
+    %% 문서 편집 흐름
+    EditFlow[문서 편집 흐름] --> |1. 편집 함수 실행| Document
+    EditFlow --> |2. 패치 생성| PatchBuilder
+    EditFlow --> |3. 패치 적용| CRDTDoc
+    EditFlow --> |4. 패치 브로드캐스트| PubSub
+    EditFlow --> |5. 변경 이벤트 발생| EventCallbacks[이벤트 콜백]
+
+    %% 문서 동기화 흐름
+    SyncFlow[문서 동기화 흐름] --> |1. 패치 수신| PubSub
+    SyncFlow --> |2. 패치 적용| Document
+    SyncFlow --> |3. 상태 동기화| SyncManager
+    SyncFlow --> |4. 누락된 패치 요청| SyncManager
+    SyncFlow --> |5. 패치 재전송| SyncManager
+
+    style Storage fill:#f9f,stroke:#333,stroke-width:2px
+    style Document fill:#bbf,stroke:#333,stroke-width:2px
+    style PersistenceAdapter fill:#bfb,stroke:#333,stroke-width:2px
+    style DocumentSerializer fill:#fbf,stroke:#333,stroke-width:2px
+    style PubSub fill:#fbb,stroke:#333,stroke-width:2px
+```
+
 ### 주요 인터페이스
 
 - **Storage**: CRDT 문서 저장소 인터페이스
@@ -320,6 +489,52 @@ CRDTStorage는 다음과 같은 동기화 메커니즘을 사용합니다:
 4. **패치 브로드캐스트**: 다른 노드에 패치 브로드캐스트
 5. **변경 이벤트 발생**: 문서 변경 이벤트 발생
 
+```mermaid
+flowchart TD
+    Start([문서 편집 시작]) --> EditFunc[사용자 편집 함수 실행]
+    EditFunc --> ModelAPI[ModelAPI를 통한 문서 조작]
+    ModelAPI --> GeneratePatch[패치 생성]
+    GeneratePatch --> ApplyPatch[로컬 문서에 패치 적용]
+    ApplyPatch --> BroadcastPatch[패치 브로드캐스트]
+    BroadcastPatch --> TriggerEvents[변경 이벤트 발생]
+    TriggerEvents --> CallbackExec[콜백 함수 실행]
+
+    subgraph "편집 함수 실행"
+        EditFunc
+        ModelAPI
+    end
+
+    subgraph "패치 처리"
+        GeneratePatch
+        ApplyPatch
+    end
+
+    subgraph "동기화 및 이벤트"
+        BroadcastPatch
+        TriggerEvents
+        CallbackExec
+    end
+
+    ApplyPatch --> |자동 저장 활성화| AutoSave{자동 저장?}
+    AutoSave -->|Yes| SaveDoc[문서 저장]
+    AutoSave -->|No| End
+
+    CallbackExec --> End([문서 편집 완료])
+    SaveDoc --> End
+
+    style Start fill:#f96,stroke:#333,stroke-width:2px
+    style End fill:#f96,stroke:#333,stroke-width:2px
+    style EditFunc fill:#bbf,stroke:#333,stroke-width:2px
+    style ModelAPI fill:#bbf,stroke:#333,stroke-width:2px
+    style GeneratePatch fill:#bfb,stroke:#333,stroke-width:2px
+    style ApplyPatch fill:#bfb,stroke:#333,stroke-width:2px
+    style BroadcastPatch fill:#fbf,stroke:#333,stroke-width:2px
+    style TriggerEvents fill:#fbf,stroke:#333,stroke-width:2px
+    style CallbackExec fill:#fbf,stroke:#333,stroke-width:2px
+    style AutoSave fill:#ff9,stroke:#333,stroke-width:2px
+    style SaveDoc fill:#ff9,stroke:#333,stroke-width:2px
+```
+
 ### 문서 동기화 흐름
 
 1. **패치 수신**: 다른 노드에서 브로드캐스트된 패치 수신
@@ -327,6 +542,48 @@ CRDTStorage는 다음과 같은 동기화 메커니즘을 사용합니다:
 3. **상태 동기화**: 주기적으로 다른 노드와 상태 동기화
 4. **누락된 패치 요청**: 필요한 경우 누락된 패치 요청
 5. **패치 재전송**: 요청된 패치 재전송
+
+```mermaid
+sequenceDiagram
+    participant Client1 as 노드 1
+    participant PubSub as PubSub 시스템
+    participant Client2 as 노드 2
+
+    Note over Client1,Client2: 문서 동기화 시작
+
+    Client1->>Client1: 문서 편집
+    Client1->>Client1: 패치 생성
+    Client1->>PubSub: 패치 브로드캐스트
+    PubSub->>Client2: 패치 전달
+    Client2->>Client2: 패치 적용
+
+    Note over Client1,Client2: 누락된 패치 처리
+
+    Client2->>Client2: 상태 벡터 확인
+    Client2->>Client1: 누락된 패치 요청
+    Client1->>Client2: 누락된 패치 전송
+    Client2->>Client2: 누락된 패치 적용
+
+    Note over Client1,Client2: 주기적 상태 동기화
+
+    Client1->>Client2: 상태 벡터 교환
+    Client2->>Client1: 상태 벡터 교환
+    Client1->>Client2: 누락된 패치 전송
+    Client2->>Client1: 누락된 패치 전송
+
+    Note over Client1,Client2: 충돌 해결
+
+    Client1->>Client1: 로컬 편집
+    Client2->>Client2: 로컬 편집 (동시에)
+    Client1->>PubSub: 패치 브로드캐스트
+    Client2->>PubSub: 패치 브로드캐스트
+    PubSub->>Client1: Client2의 패치 전달
+    PubSub->>Client2: Client1의 패치 전달
+    Client1->>Client1: CRDT 충돌 자동 해결
+    Client2->>Client2: CRDT 충돌 자동 해결
+
+    Note over Client1,Client2: 최종 일관성 달성
+```
 
 ## 어댑터 패턴
 

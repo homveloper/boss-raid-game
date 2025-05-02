@@ -236,38 +236,76 @@ func TestDocument_Edit(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 초기 문서 내용 설정
-	result := doc.Edit(ctx, func(api *api.ModelApi) error {
-		api.Root(map[string]interface{}{
-			"title":    "Test Document",
-			"content":  "Test content",
-			"authors":  []string{"tester"},
-			"modified": time.Now().Format(time.RFC3339),
-		})
+	result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value: map[string]interface{}{
+				"title":    "Test Document",
+				"content":  "Test content",
+				"authors":  []string{"tester"},
+				"modified": time.Now().Format(time.RFC3339),
+			},
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	})
 	assert.True(t, result.Success)
 
 	// 문서 편집
-	result = doc.Edit(ctx, func(api *api.ModelApi) error {
+	result = doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
 		// 현재 내용 가져오기
-		currentContent, err := api.View()
+		view, err := crdtDoc.View()
 		if err != nil {
 			return err
 		}
 
-		// 맵으로 변환
-		contentMap, ok := currentContent.(map[string]interface{})
+		currentContent, ok := view.(map[string]interface{})
 		if !ok {
-			return fmt.Errorf("content is not a map")
+			return fmt.Errorf("root node value is not a map")
 		}
 
-		// 필드 업데이트
-		contentMap["title"] = "Updated Title"
-		contentMap["content"] = "Updated content"
-		contentMap["modified"] = time.Now().Format(time.RFC3339)
+		// 내용 수정
+		updatedContent := make(map[string]interface{})
+		for k, v := range currentContent {
+			updatedContent[k] = v
+		}
+		updatedContent["title"] = "Updated Title"
+		updatedContent["content"] = "Updated content"
+		updatedContent["modified"] = time.Now().Format(time.RFC3339)
 
-		// 루트 설정
-		api.Root(contentMap)
+		// 새 루트 노드 생성
+		newRootID := crdtDoc.NextTimestamp()
+		newRootOp := &crdtpatch.NewOperation{
+			ID:       newRootID,
+			NodeType: common.NodeTypeCon,
+			Value:    updatedContent,
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(newRootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    newRootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	})
 	assert.True(t, result.Success)
@@ -310,13 +348,31 @@ func TestDocument_OnChange(t *testing.T) {
 	})
 
 	// 초기 문서 내용 설정
-	result := doc.Edit(ctx, func(api *api.ModelApi) error {
-		api.Root(map[string]interface{}{
-			"title":    "Test Document",
-			"content":  "Test content",
-			"authors":  []string{"tester"},
-			"modified": time.Now().Format(time.RFC3339),
-		})
+	result := doc.Edit(ctx, func(crdtDoc *crdt.Document, patchBuilder *crdtpatch.PatchBuilder) error {
+		// 루트 노드 생성
+		rootID := crdtDoc.NextTimestamp()
+		rootOp := &crdtpatch.NewOperation{
+			ID:       rootID,
+			NodeType: common.NodeTypeCon,
+			Value: map[string]interface{}{
+				"title":    "Test Document",
+				"content":  "Test content",
+				"authors":  []string{"tester"},
+				"modified": time.Now().Format(time.RFC3339),
+			},
+		}
+
+		// 패치 생성
+		patchBuilder.AddOperation(rootOp)
+
+		// 루트 설정 작업 추가
+		rootSetOp := &crdtpatch.InsOperation{
+			ID:       crdtDoc.NextTimestamp(),
+			TargetID: common.RootID,
+			Value:    rootID,
+		}
+		patchBuilder.AddOperation(rootSetOp)
+
 		return nil
 	})
 	assert.True(t, result.Success)

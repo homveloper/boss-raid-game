@@ -192,3 +192,136 @@ func (d *Document) SetAutoSave(autoSave bool, interval time.Duration) {
 		go d.startAutoSave()
 	}
 }
+
+// CreateSnapshot은 문서의 현재 상태 스냅샷을 생성합니다.
+func (d *Document) CreateSnapshot(ctx context.Context) (*DocumentSnapshot, error) {
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return nil, fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return nil, fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 스냅샷 생성
+	return advancedAdapter.CreateSnapshot(ctx, d)
+}
+
+// SaveSnapshot은 문서의 스냅샷을 저장합니다.
+func (d *Document) SaveSnapshot(ctx context.Context) error {
+	// 스냅샷 생성
+	snapshot, err := d.CreateSnapshot(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create snapshot: %w", err)
+	}
+
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 스냅샷 저장
+	return advancedAdapter.SaveSnapshot(ctx, snapshot)
+}
+
+// ListSnapshots은 문서의 모든 스냅샷 목록을 반환합니다.
+func (d *Document) ListSnapshots(ctx context.Context) ([]int64, error) {
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return nil, fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return nil, fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 스냅샷 목록 가져오기
+	return advancedAdapter.ListSnapshots(ctx, d.ID)
+}
+
+// LoadSnapshot은 문서의 스냅샷을 로드합니다.
+func (d *Document) LoadSnapshot(ctx context.Context, version int64) (*DocumentSnapshot, error) {
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return nil, fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return nil, fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 스냅샷 로드
+	return advancedAdapter.LoadSnapshot(ctx, d.ID, version)
+}
+
+// RestoreFromSnapshot은 스냅샷에서 문서를 복원합니다.
+func (d *Document) RestoreFromSnapshot(ctx context.Context, version int64) error {
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 스냅샷에서 복원
+	_, err := advancedAdapter.RestoreFromSnapshot(ctx, d.ID, version)
+	return err
+}
+
+// DeleteSnapshot은 문서의 스냅샷을 삭제합니다.
+func (d *Document) DeleteSnapshot(ctx context.Context, version int64) error {
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 스냅샷 삭제
+	return advancedAdapter.DeleteSnapshot(ctx, d.ID, version)
+}
+
+// DeleteAllSnapshots은 문서의 모든 스냅샷을 삭제합니다.
+func (d *Document) DeleteAllSnapshots(ctx context.Context) error {
+	// 스토리지 구현체 확인
+	storageImpl, ok := d.storage.(*storageImpl)
+	if !ok {
+		return fmt.Errorf("unsupported storage implementation")
+	}
+
+	// 고급 영구 저장소 어댑터 확인
+	advancedAdapter, ok := storageImpl.persistence.(AdvancedPersistenceProvider)
+	if !ok {
+		return fmt.Errorf("storage does not support snapshots")
+	}
+
+	// 모든 스냅샷 삭제
+	return advancedAdapter.DeleteAllSnapshots(ctx, d.ID)
+}

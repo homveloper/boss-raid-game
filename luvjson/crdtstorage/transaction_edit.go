@@ -98,9 +98,15 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 
 	// 트랜잭션 시작 마커 패치 생성 및 적용
 	startPatch := createTransactionPatch(startMarker)
-	if err := d.SyncManager.ApplyPatch(ctx, startPatch); err != nil {
+	// 직접 적용
+	if err := startPatch.Apply(d.CRDTDoc); err != nil {
 		result.Error = fmt.Errorf("failed to apply transaction start marker: %w", err)
 		return result
+	}
+	// 브로드캐스트
+	if err := d.SyncManager.ApplyPatch(ctx, startPatch); err != nil {
+		// 브로드캐스트 실패는 로그만 남기고 계속 진행
+		fmt.Printf("Warning: Failed to broadcast transaction start marker: %v\n", err)
 	}
 
 	// 패치 빌더 초기화
@@ -119,7 +125,15 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 			SessionID:  d.SessionID.String(),
 		}
 		failPatch := createTransactionPatch(failMarker)
-		d.SyncManager.ApplyPatch(ctx, failPatch)
+		// 직접 적용
+		if err := failPatch.Apply(d.CRDTDoc); err != nil {
+			fmt.Printf("Warning: Failed to apply transaction abort marker: %v\n", err)
+		}
+		// 브로드캐스트
+		if err := d.SyncManager.ApplyPatch(ctx, failPatch); err != nil {
+			// 브로드캐스트 실패는 로그만 남기고 계속 진행
+			fmt.Printf("Warning: Failed to broadcast transaction abort marker: %v\n", err)
+		}
 
 		return result
 	}
@@ -132,8 +146,8 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 	metadata["transactionId"] = transactionID
 	patch.SetMetadata(metadata)
 
-	// 패치 적용 및 브로드캐스트
-	if err := d.SyncManager.ApplyPatch(ctx, patch); err != nil {
+	// 패치 직접 적용
+	if err := patch.Apply(d.CRDTDoc); err != nil {
 		result.Error = fmt.Errorf("failed to apply patch: %w", err)
 
 		// 트랜잭션 실패 마커 생성 및 적용
@@ -145,9 +159,20 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 			SessionID:  d.SessionID.String(),
 		}
 		failPatch := createTransactionPatch(failMarker)
+		// 실패 마커 적용
+		if err := failPatch.Apply(d.CRDTDoc); err != nil {
+			fmt.Printf("Warning: Failed to apply transaction abort marker: %v\n", err)
+		}
+		// 실패 마커 브로드캐스트
 		d.SyncManager.ApplyPatch(ctx, failPatch)
 
 		return result
+	}
+
+	// 패치 브로드캐스트
+	if err := d.SyncManager.ApplyPatch(ctx, patch); err != nil {
+		// 브로드캐스트 실패는 로그만 남기고 계속 진행
+		fmt.Printf("Warning: Failed to broadcast patch: %v\n", err)
 	}
 
 	// 마지막 수정 시간 업데이트
@@ -173,7 +198,15 @@ func (d *Document) EditTransaction(ctx context.Context, editFunc EditFunc) *Tran
 		SessionID:  d.SessionID.String(),
 	}
 	endPatch := createTransactionPatch(endMarker)
-	d.SyncManager.ApplyPatch(ctx, endPatch)
+	// 직접 적용
+	if err := endPatch.Apply(d.CRDTDoc); err != nil {
+		fmt.Printf("Warning: Failed to apply transaction commit marker: %v\n", err)
+	}
+	// 브로드캐스트
+	if err := d.SyncManager.ApplyPatch(ctx, endPatch); err != nil {
+		// 브로드캐스트 실패는 로그만 남기고 계속 진행
+		fmt.Printf("Warning: Failed to broadcast transaction commit marker: %v\n", err)
+	}
 
 	// 변경 콜백 호출
 	for _, callback := range d.onChangeCallbacks {

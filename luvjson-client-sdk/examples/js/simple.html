@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LuvJSON Simple Example</title>
+    <script src="../../dist/js/wasm_exec.js"></script>
+    <script src="../../dist/js/luvjson.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow: auto;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .output {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>LuvJSON Simple Example</h1>
+    
+    <div>
+        <button id="createDocBtn">Create Document</button>
+        <button id="addPropertyBtn" disabled>Add Property</button>
+        <button id="updatePropertyBtn" disabled>Update Property</button>
+        <button id="removePropertyBtn" disabled>Remove Property</button>
+        <button id="getContentBtn" disabled>Get Content</button>
+    </div>
+    
+    <div class="output">
+        <h3>Output:</h3>
+        <pre id="output">Initializing LuvJSON client...</pre>
+    </div>
+    
+    <script>
+        // Global variables
+        let client;
+        let documentId = 'example-doc';
+        let clientId = 'client-' + Math.floor(Math.random() * 10000);
+        let output = document.getElementById('output');
+        
+        // Helper function to log output
+        function log(message) {
+            output.textContent += '\n' + message;
+            // Scroll to bottom
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        // Initialize the client
+        async function init() {
+            try {
+                client = new LuvJsonClient({
+                    wasmUrl: '../../dist/wasm/luvjson.wasm'
+                });
+                
+                // Wait for client to be ready
+                await client.readyPromise;
+                log('LuvJSON client initialized successfully.');
+                
+                // Enable create document button
+                document.getElementById('createDocBtn').disabled = false;
+            } catch (error) {
+                log('Error initializing client: ' + error.message);
+            }
+        }
+        
+        // Create document
+        async function createDocument() {
+            try {
+                const result = await client.createDocument(documentId);
+                if (result.success) {
+                    log(`Document created with ID: ${result.id}`);
+                    
+                    // Enable other buttons
+                    document.getElementById('addPropertyBtn').disabled = false;
+                    document.getElementById('getContentBtn').disabled = false;
+                } else {
+                    log(`Failed to create document: ${result.error}`);
+                }
+            } catch (error) {
+                log('Error creating document: ' + error.message);
+            }
+        }
+        
+        // Add property
+        async function addProperty() {
+            try {
+                // Create operation
+                const opResult = await client.createOperation(
+                    'add',
+                    'title',
+                    'Hello, LuvJSON!',
+                    clientId
+                );
+                
+                if (opResult.success) {
+                    log(`Operation created: ${JSON.stringify(opResult.operation)}`);
+                    
+                    // Create patch
+                    const patchResult = await client.createPatch(
+                        documentId,
+                        [opResult.operation],
+                        clientId
+                    );
+                    
+                    if (patchResult.success) {
+                        log(`Patch created: ${JSON.stringify(patchResult.patch)}`);
+                        
+                        // Apply patch
+                        const applyResult = await client.applyPatch(
+                            documentId,
+                            patchResult.patch
+                        );
+                        
+                        if (applyResult.success) {
+                            log(`Patch applied, new version: ${applyResult.version}`);
+                            document.getElementById('updatePropertyBtn').disabled = false;
+                            document.getElementById('removePropertyBtn').disabled = false;
+                        } else {
+                            log(`Failed to apply patch: ${applyResult.error}`);
+                        }
+                    } else {
+                        log(`Failed to create patch: ${patchResult.error}`);
+                    }
+                } else {
+                    log(`Failed to create operation: ${opResult.error}`);
+                }
+            } catch (error) {
+                log('Error adding property: ' + error.message);
+            }
+        }
+        
+        // Update property
+        async function updateProperty() {
+            try {
+                // Create operation
+                const opResult = await client.createOperation(
+                    'replace',
+                    'title',
+                    'Updated LuvJSON Title!',
+                    clientId
+                );
+                
+                if (opResult.success) {
+                    log(`Operation created: ${JSON.stringify(opResult.operation)}`);
+                    
+                    // Create patch
+                    const patchResult = await client.createPatch(
+                        documentId,
+                        [opResult.operation],
+                        clientId
+                    );
+                    
+                    if (patchResult.success) {
+                        log(`Patch created: ${JSON.stringify(patchResult.patch)}`);
+                        
+                        // Apply patch
+                        const applyResult = await client.applyPatch(
+                            documentId,
+                            patchResult.patch
+                        );
+                        
+                        if (applyResult.success) {
+                            log(`Patch applied, new version: ${applyResult.version}`);
+                        } else {
+                            log(`Failed to apply patch: ${applyResult.error}`);
+                        }
+                    } else {
+                        log(`Failed to create patch: ${patchResult.error}`);
+                    }
+                } else {
+                    log(`Failed to create operation: ${opResult.error}`);
+                }
+            } catch (error) {
+                log('Error updating property: ' + error.message);
+            }
+        }
+        
+        // Remove property
+        async function removeProperty() {
+            try {
+                // Create operation
+                const opResult = await client.createOperation(
+                    'remove',
+                    'title',
+                    null,
+                    clientId
+                );
+                
+                if (opResult.success) {
+                    log(`Operation created: ${JSON.stringify(opResult.operation)}`);
+                    
+                    // Create patch
+                    const patchResult = await client.createPatch(
+                        documentId,
+                        [opResult.operation],
+                        clientId
+                    );
+                    
+                    if (patchResult.success) {
+                        log(`Patch created: ${JSON.stringify(patchResult.patch)}`);
+                        
+                        // Apply patch
+                        const applyResult = await client.applyPatch(
+                            documentId,
+                            patchResult.patch
+                        );
+                        
+                        if (applyResult.success) {
+                            log(`Patch applied, new version: ${applyResult.version}`);
+                            document.getElementById('updatePropertyBtn').disabled = true;
+                            document.getElementById('removePropertyBtn').disabled = true;
+                        } else {
+                            log(`Failed to apply patch: ${applyResult.error}`);
+                        }
+                    } else {
+                        log(`Failed to create patch: ${patchResult.error}`);
+                    }
+                } else {
+                    log(`Failed to create operation: ${opResult.error}`);
+                }
+            } catch (error) {
+                log('Error removing property: ' + error.message);
+            }
+        }
+        
+        // Get content
+        async function getContent() {
+            try {
+                const result = await client.getDocumentContent(documentId);
+                if (result.success) {
+                    log(`Document content: ${JSON.stringify(result.content, null, 2)}`);
+                    log(`Document version: ${result.version}`);
+                } else {
+                    log(`Failed to get document content: ${result.error}`);
+                }
+            } catch (error) {
+                log('Error getting content: ' + error.message);
+            }
+        }
+        
+        // Add event listeners
+        document.getElementById('createDocBtn').addEventListener('click', createDocument);
+        document.getElementById('addPropertyBtn').addEventListener('click', addProperty);
+        document.getElementById('updatePropertyBtn').addEventListener('click', updateProperty);
+        document.getElementById('removePropertyBtn').addEventListener('click', removeProperty);
+        document.getElementById('getContentBtn').addEventListener('click', getContent);
+        
+        // Initialize on page load
+        window.onload = init;
+    </script>
+</body>
+</html>

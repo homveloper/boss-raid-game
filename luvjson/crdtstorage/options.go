@@ -53,4 +53,19 @@ type StorageOptions struct {
 
 	// EnableTransactionTracking은 트랜잭션 추적 활성화 여부입니다.
 	EnableTransactionTracking bool
+
+	// EnableSnapshots는 스냅샷 활성화 여부입니다.
+	EnableSnapshots bool
+
+	// SnapshotInterval은 스냅샷 생성 간격입니다.
+	SnapshotInterval time.Duration
+
+	// MaxSnapshots는 유지할 최대 스냅샷 수입니다.
+	MaxSnapshots int
+
+	// SnapshotOnSave는 저장 시 스냅샷 생성 여부입니다.
+	SnapshotOnSave bool
+
+	// SnapshotTableName은 SQL 어댑터에서 사용할 스냅샷 테이블 이름입니다.
+	SnapshotTableName string
 }

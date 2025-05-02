@@ -2,6 +2,7 @@ package crdtpatch
 
 import (
 	"encoding/json"
+	"time"
 
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
@@ -67,6 +68,20 @@ func (o *NewOperation) Apply(doc *crdt.Document) error {
 
 	switch o.NodeType {
 	case common.NodeTypeCon:
+		// 시간 값을 처리하기 위한 특별한 로직
+		if timeVal, ok := o.Value.(map[string]interface{}); ok {
+			if timeType, ok := timeVal["type"].(string); ok && timeType == "time" {
+				if timeStr, ok := timeVal["value"].(string); ok {
+					// RFC3339 형식의 시간 문자열을 time.Time으로 파싱
+					parsedTime, err := time.Parse(time.RFC3339, timeStr)
+					if err == nil {
+						// 파싱된 시간을 사용
+						node = crdt.NewConstantNode(o.ID, parsedTime)
+						break
+					}
+				}
+			}
+		}
 		node = crdt.NewConstantNode(o.ID, o.Value)
 	case common.NodeTypeVal:
 		node = crdt.NewLWWValueNode(o.ID, o.ID, crdt.NewConstantNode(o.ID, nil))
@@ -74,8 +89,10 @@ func (o *NewOperation) Apply(doc *crdt.Document) error {
 		node = crdt.NewLWWObjectNode(o.ID)
 	case common.NodeTypeStr:
 		node = crdt.NewRGAStringNode(o.ID)
-	// Add other node types as needed
+	case common.NodeTypeRoot:
+		node = crdt.NewRootNode(o.ID)
 	default:
+		// 지원되지 않는 노드 타입에 대한 오류 메시지 개선
 		return common.ErrInvalidNodeType{Type: string(o.NodeType)}
 	}
 
@@ -103,7 +120,16 @@ func (o *NewOperation) MarshalJSON() ([]byte, error) {
 	}
 
 	if o.NodeType == common.NodeTypeCon {
-		op.Value = o.Value
+		// time.Time 값을 특별하게 처리
+		if timeVal, ok := o.Value.(time.Time); ok {
+			// time.Time 값을 RFC3339 형식의 문자열로 변환하여 저장
+			op.Value = map[string]interface{}{
+				"type":  "time",
+				"value": timeVal.Format(time.RFC3339),
+			}
+		} else {
+			op.Value = o.Value
+		}
 	}
 
 	return json.Marshal(op)
@@ -211,6 +237,22 @@ func (o *InsOperation) Apply(doc *crdt.Document) error {
 	switch node := target.(type) {
 	case *crdt.LWWValueNode:
 		// Update the value
+		// time.Time 값을 특별하게 처리
+		if timeVal, ok := o.Value.(map[string]interface{}); ok {
+			if timeType, ok := timeVal["type"].(string); ok && timeType == "time" {
+				if timeStr, ok := timeVal["value"].(string); ok {
+					// RFC3339 형식의 시간 문자열을 time.Time으로 파싱
+					parsedTime, err := time.Parse(time.RFC3339, timeStr)
+					if err == nil {
+						// 파싱된 시간을 사용
+						valueNode := crdt.NewConstantNode(o.ID, parsedTime)
+						node.SetValue(o.ID, valueNode)
+						doc.AddNode(valueNode)
+						return nil
+					}
+				}
+			}
+		}
 		valueNode := crdt.NewConstantNode(o.ID, o.Value)
 		node.SetValue(o.ID, valueNode)
 		doc.AddNode(valueNode)
@@ -218,6 +260,22 @@ func (o *InsOperation) Apply(doc *crdt.Document) error {
 		// Update a field
 		if obj, ok := o.Value.(map[string]interface{}); ok {
 			for key, val := range obj {
+				// time.Time 값을 특별하게 처리
+				if timeVal, ok := val.(map[string]interface{}); ok {
+					if timeType, ok := timeVal["type"].(string); ok && timeType == "time" {
+						if timeStr, ok := timeVal["value"].(string); ok {
+							// RFC3339 형식의 시간 문자열을 time.Time으로 파싱
+							parsedTime, err := time.Parse(time.RFC3339, timeStr)
+							if err == nil {
+								// 파싱된 시간을 사용
+								valueNode := crdt.NewConstantNode(o.ID, parsedTime)
+								node.Set(key, o.ID, valueNode)
+								doc.AddNode(valueNode)
+								continue
+							}
+						}
+					}
+				}
 				valueNode := crdt.NewConstantNode(o.ID, val)
 				node.Set(key, o.ID, valueNode)
 				doc.AddNode(valueNode)
@@ -251,10 +309,34 @@ func (o *InsOperation) MarshalJSON() ([]byte, error) {
 	}
 
 	op := jsonOp{
-		Op:    "ins",
-		ID:    o.ID,
-		Obj:   o.TargetID,
-		Value: o.Value,
+		Op:  "ins",
+		ID:  o.ID,
+		Obj: o.TargetID,
+	}
+
+	// time.Time 값을 특별하게 처리
+	if timeVal, ok := o.Value.(time.Time); ok {
+		// time.Time 값을 RFC3339 형식의 문자열로 변환하여 저장
+		op.Value = map[string]interface{}{
+			"type":  "time",
+			"value": timeVal.Format(time.RFC3339),
+		}
+	} else if mapVal, ok := o.Value.(map[string]interface{}); ok {
+		// 맵 내부의 time.Time 값을 처리
+		processedMap := make(map[string]interface{})
+		for k, v := range mapVal {
+			if timeVal, ok := v.(time.Time); ok {
+				processedMap[k] = map[string]interface{}{
+					"type":  "time",
+					"value": timeVal.Format(time.RFC3339),
+				}
+			} else {
+				processedMap[k] = v
+			}
+		}
+		op.Value = processedMap
+	} else {
+		op.Value = o.Value
 	}
 
 	return json.Marshal(op)

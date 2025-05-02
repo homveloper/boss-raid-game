@@ -141,12 +141,16 @@ func (p *Patch) fromVerboseJSON(data []byte) error {
 		} else if len(opStr) >= 4 && opStr[:4] == "new_" {
 			opType = common.OperationTypeNew
 		} else {
-			return common.ErrInvalidOperation{Message: "invalid operation type"}
+			return common.ErrInvalidOperation{Message: "invalid operation type: " + opStr}
 		}
 
 		opID := opmeta.ID
 
 		op := MakeOperation(opType, opID)
+		if op == nil {
+			return common.ErrInvalidOperationType{Type: string(opType)}
+		}
+
 		if err := json.Unmarshal(opJSON, op); err != nil {
 			return err
 		}

@@ -179,3 +179,97 @@ type PersistenceProvider interface {
 
 // EditFunc는 문서 편집 함수 타입입니다.
 type EditFunc func(*crdt.Document, *crdtpatch.PatchBuilder) error
+
+// SnapshotOptions는 스냅샷 옵션을 나타냅니다.
+type SnapshotOptions struct {
+	// Enabled는 스냅샷 활성화 여부입니다.
+	Enabled bool
+
+	// Interval은 스냅샷 생성 간격입니다.
+	// 이 시간이 지나면 새로운 스냅샷이 생성됩니다.
+	Interval time.Duration
+
+	// MaxSnapshots는 유지할 최대 스냅샷 수입니다.
+	// 이 값을 초과하면 가장 오래된 스냅샷이 삭제됩니다.
+	MaxSnapshots int
+
+	// SnapshotOnSave는 저장 시 스냅샷 생성 여부입니다.
+	// true인 경우 문서가 저장될 때마다 스냅샷이 생성됩니다.
+	SnapshotOnSave bool
+}
+
+// DocumentSnapshot은 문서 스냅샷을 나타냅니다.
+type DocumentSnapshot struct {
+	// DocumentID는 문서의 고유 식별자입니다.
+	DocumentID string
+
+	// Version은 스냅샷의 버전 번호입니다.
+	Version int64
+
+	// Timestamp는 스냅샷이 생성된 시간입니다.
+	Timestamp time.Time
+
+	// Data는 스냅샷 데이터입니다.
+	// 이는 문서의 View() 메서드로 얻은 데이터입니다.
+	Data interface{}
+
+	// Metadata는 스냅샷 메타데이터입니다.
+	Metadata map[string]interface{}
+}
+
+// SnapshotPersistenceProvider는 스냅샷 저장소 인터페이스입니다.
+type SnapshotPersistenceProvider interface {
+	// SaveSnapshot은 문서 스냅샷을 저장합니다.
+	// ctx: 컨텍스트
+	// snapshot: 저장할 스냅샷
+	SaveSnapshot(ctx context.Context, snapshot *DocumentSnapshot) error
+
+	// LoadSnapshot은 문서 스냅샷을 로드합니다.
+	// ctx: 컨텍스트
+	// documentID: 문서 ID
+	// version: 스냅샷 버전 (0이면 최신 버전)
+	// 스냅샷을 반환합니다.
+	LoadSnapshot(ctx context.Context, documentID string, version int64) (*DocumentSnapshot, error)
+
+	// ListSnapshots은 문서의 모든 스냅샷 목록을 반환합니다.
+	// ctx: 컨텍스트
+	// documentID: 문서 ID
+	// 스냅샷 버전 목록을 반환합니다.
+	ListSnapshots(ctx context.Context, documentID string) ([]int64, error)
+
+	// DeleteSnapshot은 문서 스냅샷을 삭제합니다.
+	// ctx: 컨텍스트
+	// documentID: 문서 ID
+	// version: 스냅샷 버전
+	DeleteSnapshot(ctx context.Context, documentID string, version int64) error
+
+	// DeleteAllSnapshots은 문서의 모든 스냅샷을 삭제합니다.
+	// ctx: 컨텍스트
+	// documentID: 문서 ID
+	DeleteAllSnapshots(ctx context.Context, documentID string) error
+}
+
+// AdvancedPersistenceProvider는 작업과 스냅샷을 분리하여 저장하는 영구 저장소 인터페이스입니다.
+type AdvancedPersistenceProvider interface {
+	PersistenceProvider
+	SnapshotPersistenceProvider
+
+	// GetSnapshotOptions는 스냅샷 옵션을 반환합니다.
+	GetSnapshotOptions() *SnapshotOptions
+
+	// SetSnapshotOptions는 스냅샷 옵션을 설정합니다.
+	SetSnapshotOptions(options *SnapshotOptions)
+
+	// CreateSnapshot은 문서의 스냅샷을 생성합니다.
+	// ctx: 컨텍스트
+	// doc: 스냅샷을 생성할 문서
+	// 생성된 스냅샷을 반환합니다.
+	CreateSnapshot(ctx context.Context, doc *Document) (*DocumentSnapshot, error)
+
+	// RestoreFromSnapshot은 스냅샷에서 문서를 복원합니다.
+	// ctx: 컨텍스트
+	// documentID: 문서 ID
+	// version: 스냅샷 버전 (0이면 최신 버전)
+	// 복원된 문서 데이터를 반환합니다.
+	RestoreFromSnapshot(ctx context.Context, documentID string, version int64) (interface{}, error)
+}

@@ -29,6 +29,11 @@ func NewSQLPersistence(db *sql.DB, tableName string) (PersistenceAdapter, error)
 	return NewSQLAdapter(db, tableName)
 }
 
+// NewAdvancedSQLPersistence는 스냅샷을 지원하는 SQL 데이터베이스 기반 영구 저장소를 생성합니다.
+func NewAdvancedSQLPersistence(db *sql.DB, tableName string, snapshotTableName string) (AdvancedPersistenceProvider, error) {
+	return NewAdvancedSQLAdapter(db, tableName, snapshotTableName)
+}
+
 // NewMongoDBPersistence는 MongoDB 기반 영구 저장소를 생성합니다.
 func NewMongoDBPersistence(collection *mongo.Collection) PersistenceAdapter {
 	return NewMongoDBAdapter(collection)
@@ -61,6 +66,9 @@ func createPersistenceAdapter(ctx context.Context, options *StorageOptions, cust
 		}
 
 		return NewRedisPersistence(redisClient, options.KeyPrefix), nil
+	case "sql":
+		// SQL 어댑터는 외부에서 생성해야 함
+		return nil, fmt.Errorf("SQL persistence type requires a custom persistence adapter")
 	case "custom":
 		return nil, fmt.Errorf("custom persistence type requires a custom persistence adapter")
 	default:

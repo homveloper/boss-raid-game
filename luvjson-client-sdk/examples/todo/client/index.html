@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRDT Todo App</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="wasm_exec.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>CRDT Todo App</h1>
+        <div class="connection-status">
+            <span id="status-indicator" class="offline"></span>
+            <span id="status-text">오프라인</span>
+        </div>
+
+        <div class="add-todo">
+            <input type="text" id="new-todo" placeholder="할 일을 입력하세요...">
+            <button id="add-button">추가</button>
+        </div>
+
+        <div class="filter-buttons">
+            <button id="all-filter" class="active">모두</button>
+            <button id="active-filter">진행 중</button>
+            <button id="completed-filter">완료</button>
+        </div>
+
+        <ul id="todo-list" class="todo-list"></ul>
+
+        <div class="todo-stats">
+            <span id="items-left">0 항목 남음</span>
+            <button id="clear-completed">완료된 항목 삭제</button>
+        </div>
+
+        <div class="sync-info">
+            <span id="version">버전: 0</span>
+            <span id="sync-status"></span>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

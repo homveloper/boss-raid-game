@@ -35,6 +35,11 @@ func DefaultStorageOptions() *StorageOptions {
 		EnableTransactionTracking: false,
 		SyncMethod:                "pubsub",
 		MaxStreamLength:           10000,
+		EnableSnapshots:           true,
+		SnapshotInterval:          time.Hour,
+		MaxSnapshots:              10,
+		SnapshotOnSave:            false,
+		SnapshotTableName:         "document_snapshots",
 	}
 }
 

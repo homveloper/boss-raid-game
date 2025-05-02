@@ -14,7 +14,7 @@ import (
 // 이 함수는 기본적으로 낙관적 동시성 제어를 사용하며, 옵션을 통해 동작을 조정할 수 있습니다.
 // 예시:
 //
-//	doc.Edit(ctx, func(api *api.ModelApi) error {
+//	doc.Edit(ctx, func(doc *crdt.Document, pb *crdtpatch.PatchBuilder) error {
 //	    // 편집 작업
 //	    return nil
 //	}, WithMaxRetries(5), WithDistributedLock(false))
@@ -100,8 +100,8 @@ func (d *Document) Edit(ctx context.Context, editFunc EditFunc, opts ...EditOpti
 		metadata["retryCount"] = i
 		patch.SetMetadata(metadata)
 
-		// 패치 적용 및 브로드캐스트
-		if err = d.SyncManager.ApplyPatch(ctx, patch); err != nil {
+		// 패치 직접 적용
+		if err = patch.Apply(d.CRDTDoc); err != nil {
 			d.mutex.Unlock()
 			result.Error = fmt.Errorf("failed to apply patch: %w", err)
 
@@ -110,6 +110,12 @@ func (d *Document) Edit(ctx context.Context, editFunc EditFunc, opts ...EditOpti
 				continue
 			}
 			return result
+		}
+
+		// 패치 브로드캐스트 (ApplyPatch 메서드는 내부적으로 브로드캐스트도 수행)
+		if err = d.SyncManager.ApplyPatch(ctx, patch); err != nil {
+			// 브로드캐스트 실패는 로그만 남기고 계속 진행
+			fmt.Printf("Warning: Failed to broadcast patch: %v\n", err)
 		}
 
 		// 마지막 수정 시간 업데이트
