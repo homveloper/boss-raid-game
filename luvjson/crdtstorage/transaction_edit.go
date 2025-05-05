@@ -298,15 +298,10 @@ func (d *Document) GetOptions() *DocumentOptions {
 	// 기본 옵션 생성
 	options := DefaultDocumentOptions()
 
-	// 저장소에서 옵션 가져오기
-	if s, ok := d.storage.(*storageImpl); ok && s.options != nil {
-		// 저장소 옵션에서 일부 설정 가져오기
-		options.AutoSave = s.options.AutoSave
-		options.AutoSaveInterval = s.options.AutoSaveInterval
-
-		// 트랜잭션 관련 설정
-		options.RequireDistributedLock = s.options.EnableDistributedLock
-	}
+	// 저장소 옵션은 더 이상 Document에서 직접 접근할 수 없습니다.
+	// 대신 문서 자체의 설정을 사용합니다.
+	options.AutoSave = d.autoSave
+	options.AutoSaveInterval = d.autoSaveInterval
 
 	// 문서 메타데이터에서 옵션 가져오기
 	if d.Metadata != nil {

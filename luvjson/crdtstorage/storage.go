@@ -91,6 +91,10 @@ type storageImpl struct {
 
 	// serializer는 문서 직렬화/역직렬화를 담당합니다.
 	serializer DocumentSerializer
+
+	// syncManagerRegistry는 동기화 매니저 레지스트리입니다.
+	// 여러 문서의 동기화를 관리합니다.
+	syncManagerRegistry *SyncManagerRegistry
 }
 
 // NewStorage는 새 저장소를 생성합니다.
@@ -172,6 +176,49 @@ func NewStorageWithCustomPersistence(ctx context.Context, options *StorageOption
 		}
 	}
 
+	// 동기화 매니저 레지스트리 생성
+	syncOptions := crdtsync.DefaultSyncOptions()
+
+	// PubSub 유형에 따라 동기화 유형 설정
+	switch options.PubSubType {
+	case "memory":
+		syncOptions.SyncType = crdtsync.SyncTypeMemory
+	case "redis":
+		if options.SyncMethod == "streams" {
+			syncOptions.SyncType = crdtsync.SyncTypeRedisStreams
+		} else {
+			syncOptions.SyncType = crdtsync.SyncTypeRedisPubSub
+		}
+	default:
+		syncOptions.SyncType = crdtsync.SyncTypeMemory
+	}
+
+	// Redis 설정
+	if storage.redisClient != nil {
+		syncOptions.RedisAddr = options.RedisAddr
+		syncOptions.RedisPassword = options.RedisPassword
+		syncOptions.RedisDB = options.RedisDB
+	}
+
+	// 인코딩 형식 설정
+	syncOptions.EncodingFormat = crdtpubsub.EncodingFormatJSON
+
+	// 최대 스트림 길이 설정
+	syncOptions.MaxStreamLength = options.MaxStreamLength
+
+	// 동기화 매니저 레지스트리 생성
+	syncManagerRegistry, err := NewSyncManagerRegistry(storageCtx, syncOptions)
+	if err != nil {
+		cancel()
+		pubsub.Close()
+		persistence.Close()
+		if storage.redisClient != nil {
+			storage.redisClient.Close()
+		}
+		return nil, fmt.Errorf("failed to create sync manager registry: %w", err)
+	}
+	storage.syncManagerRegistry = syncManagerRegistry
+
 	return storage, nil
 }
 
@@ -234,7 +281,6 @@ func (s *storageImpl) CreateDocument(ctx context.Context, documentID string) (*D
 		SessionID:         sessionID,
 		LastModified:      time.Now(),
 		Metadata:          make(map[string]interface{}),
-		storage:           s,
 		ctx:               docCtx,
 		cancel:            docCancel,
 		autoSave:          s.options.AutoSave,
@@ -258,7 +304,7 @@ func (s *storageImpl) CreateDocument(ctx context.Context, documentID string) (*D
 	}
 
 	// 문서 저장
-	if err := s.saveDocument(ctx, doc); err != nil {
+	if err := s.SaveDocument(ctx, doc); err != nil {
 		docCancel()
 		return nil, fmt.Errorf("failed to save document: %w", err)
 	}
@@ -316,7 +362,6 @@ func (s *storageImpl) GetDocument(ctx context.Context, documentID string) (*Docu
 		SessionID:         sessionID,
 		LastModified:      time.Now(),
 		Metadata:          make(map[string]interface{}),
-		storage:           s,
 		ctx:               docCtx,
 		cancel:            docCancel,
 		autoSave:          s.options.AutoSave,
@@ -374,13 +419,13 @@ func (s *storageImpl) DeleteDocument(ctx context.Context, documentID string) err
 // SyncDocument는 특정 문서를 동기화합니다.
 func (s *storageImpl) SyncDocument(ctx context.Context, documentID string, peerID string) error {
 	// 문서 가져오기
-	doc, err := s.GetDocument(ctx, documentID)
+	_, err := s.GetDocument(ctx, documentID)
 	if err != nil {
 		return fmt.Errorf("failed to get document: %w", err)
 	}
 
-	// 문서 동기화
-	return doc.Sync(ctx, peerID)
+	// 동기화 매니저 레지스트리를 통해 문서 동기화
+	return s.syncManagerRegistry.SyncDocument(ctx, documentID, peerID)
 }
 
 // SyncAllDocuments는 모든 문서를 동기화합니다.
@@ -394,7 +439,21 @@ func (s *storageImpl) SyncAllDocuments(ctx context.Context, peerID string) error
 	// 각 문서 동기화
 	var syncErrors []error
 	for _, documentID := range documentIDs {
-		if err := s.SyncDocument(ctx, documentID, peerID); err != nil {
+		// 문서가 이미 로드되어 있는지 확인
+		s.mutex.RLock()
+		_, exists := s.documents[documentID]
+		s.mutex.RUnlock()
+
+		// 로드되어 있지 않은 경우 로드
+		if !exists {
+			if _, err := s.GetDocument(ctx, documentID); err != nil {
+				syncErrors = append(syncErrors, fmt.Errorf("failed to load document %s: %w", documentID, err))
+				continue
+			}
+		}
+
+		// 동기화 매니저 레지스트리를 통해 문서 동기화
+		if err := s.syncManagerRegistry.SyncDocument(ctx, documentID, peerID); err != nil {
 			// 하나의 문서 동기화 실패를 전체 실패로 처리하지 않고 계속 진행
 			syncErrors = append(syncErrors, fmt.Errorf("failed to sync document %s: %w", documentID, err))
 		}
@@ -406,7 +465,7 @@ func (s *storageImpl) SyncAllDocuments(ctx context.Context, peerID string) error
 		for i, err := range syncErrors {
 			errMsg += fmt.Sprintf("\n  %d. %v", i+1, err)
 		}
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	return nil
@@ -425,6 +484,13 @@ func (s *storageImpl) Close() error {
 		doc.cancel()
 	}
 	s.documents = make(map[string]*Document)
+
+	// 동기화 매니저 레지스트리 닫기
+	if s.syncManagerRegistry != nil {
+		if err := s.syncManagerRegistry.Close(); err != nil {
+			return fmt.Errorf("failed to close sync manager registry: %w", err)
+		}
+	}
 
 	// PubSub 닫기
 	if err := s.pubsub.Close(); err != nil {
@@ -446,8 +512,11 @@ func (s *storageImpl) Close() error {
 	return nil
 }
 
-// saveDocument는 문서를 영구 저장소에 저장합니다.
-func (s *storageImpl) saveDocument(ctx context.Context, doc *Document) error {
+// SaveDocument는 문서를 저장합니다.
+func (s *storageImpl) SaveDocument(ctx context.Context, doc *Document) error {
+	// 마지막 수정 시간 업데이트
+	doc.LastModified = time.Now()
+
 	// 영구 저장소에 저장
 	// Document 객체를 직접 전달하여 사용자가 필요에 맞게 데이터를 인덱싱하고 저장 쿼리를 작성할 수 있도록 함
 	return s.persistence.SaveDocument(ctx, doc)
@@ -455,55 +524,10 @@ func (s *storageImpl) saveDocument(ctx context.Context, doc *Document) error {
 
 // setupSyncManager는 문서의 동기화 매니저를 설정합니다.
 func (s *storageImpl) setupSyncManager(doc *Document) error {
-
-	// 동기화 옵션 생성
-	syncOptions := crdtsync.DefaultSyncOptions()
-
-	// PubSub 유형에 따라 동기화 유형 설정
-	switch s.options.PubSubType {
-	case "memory":
-		syncOptions.SyncType = crdtsync.SyncTypeMemory
-	case "redis":
-		if s.options.SyncMethod == "streams" {
-			syncOptions.SyncType = crdtsync.SyncTypeRedisStreams
-		} else {
-			syncOptions.SyncType = crdtsync.SyncTypeRedisPubSub
-		}
-	default:
-		syncOptions.SyncType = crdtsync.SyncTypeMemory
+	// 문서를 동기화 매니저 레지스트리에 등록
+	if err := s.syncManagerRegistry.RegisterDocument(doc); err != nil {
+		return fmt.Errorf("failed to register document with sync manager registry: %w", err)
 	}
-
-	// Redis 설정
-	if s.redisClient != nil {
-		syncOptions.RedisAddr = s.options.RedisAddr
-		syncOptions.RedisPassword = s.options.RedisPassword
-		syncOptions.RedisDB = s.options.RedisDB
-	}
-
-	// 인코딩 형식 설정
-	syncOptions.EncodingFormat = crdtpubsub.EncodingFormatJSON
-
-	// 최대 스트림 길이 설정
-	syncOptions.MaxStreamLength = s.options.MaxStreamLength
-
-	// 동기화 매니저 생성
-	syncManager, err := crdtsync.CreateSyncManager(
-		doc.ctx,
-		doc.CRDTDoc,
-		doc.ID,
-		syncOptions,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create sync manager: %w", err)
-	}
-
-	// 동기화 매니저 시작
-	if err := syncManager.Start(doc.ctx); err != nil {
-		return fmt.Errorf("failed to start sync manager: %w", err)
-	}
-
-	// 문서에 동기화 매니저 설정
-	doc.SyncManager = syncManager
 
 	return nil
 }

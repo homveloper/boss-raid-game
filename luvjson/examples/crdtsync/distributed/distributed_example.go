@@ -15,10 +15,9 @@ import (
 	"tictactoe/luvjson/api"
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
-	"tictactoe/luvjson/crdtpatch"
 	"tictactoe/luvjson/crdtpubsub"
+	redispubsub "tictactoe/luvjson/crdtpubsub"
 	"tictactoe/luvjson/crdtpubsub/memory"
-	redispubsub "tictactoe/luvjson/crdtpubsub/redis"
 	"tictactoe/luvjson/crdtsync"
 )
 

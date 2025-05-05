@@ -271,46 +271,8 @@ func (d *Document) parseNodeRecursively(node Node) error {
 	return nil
 }
 
-// toCompactJSON returns a compact JSON representation of the document.
-func (d *Document) toCompactJSON() ([]byte, error) {
-	// For now, we'll use the verbose format as a base
-	verboseJSON, err := d.toVerboseJSON()
-	if err != nil {
-		return nil, err
-	}
-
-	// In a real implementation, this would compress the verbose format
-	// For now, we'll just return the verbose format
-	return verboseJSON, nil
-}
-
-// fromCompactJSON parses a compact JSON representation of the document.
-func (d *Document) fromCompactJSON(data []byte) error {
-	// For now, we'll assume the compact format is the same as the verbose format
-	return d.fromVerboseJSON(data)
-}
-
-// toBinaryJSON returns a binary JSON representation of the document.
-func (d *Document) toBinaryJSON() ([]byte, error) {
-	// For now, we'll use the verbose format as a base
-	verboseJSON, err := d.toVerboseJSON()
-	if err != nil {
-		return nil, err
-	}
-
-	// In a real implementation, this would convert to a binary format
-	// For now, we'll just return the verbose format
-	return verboseJSON, nil
-}
-
-// fromBinaryJSON parses a binary JSON representation of the document.
-func (d *Document) fromBinaryJSON(data []byte) error {
-	// For now, we'll assume the binary format is the same as the verbose format
-	return d.fromVerboseJSON(data)
-}
-
-// patchOperation represents a JSON CRDT patch operation.
-type patchOperation struct {
+// ㅖatchOperation represents a JSON CRDT patch operation.
+type PatchOperation struct {
 	Op        string                  `json:"op"`
 	ID        common.LogicalTimestamp `json:"id"`
 	TargetID  common.LogicalTimestamp `json:"target,omitempty"`
@@ -322,8 +284,8 @@ type patchOperation struct {
 	SpanValue uint64                  `json:"len,omitempty"`
 }
 
-// patch represents a JSON CRDT patch document.
-type patch struct {
+// Patch represents a JSON CRDT Patch document.
+type Patch struct {
 	ID         common.LogicalTimestamp `json:"id"`
 	Metadata   map[string]interface{}  `json:"meta,omitempty"`
 	Operations []json.RawMessage       `json:"ops"`
@@ -334,7 +296,7 @@ type patch struct {
 // The default format is verbose.
 func (d *Document) ApplyPatch(patchData []byte) error {
 	// Unmarshal the patch data
-	var p patch
+	var p Patch
 	if err := json.Unmarshal(patchData, &p); err != nil {
 		return fmt.Errorf("failed to unmarshal patch: %w", err)
 	}
@@ -350,7 +312,7 @@ func (d *Document) ApplyPatch(patchData []byte) error {
 		}
 
 		// Parse the operation
-		var op patchOperation
+		var op PatchOperation
 		if err := json.Unmarshal(opData, &op); err != nil {
 			return fmt.Errorf("failed to unmarshal operation: %w", err)
 		}
@@ -365,7 +327,7 @@ func (d *Document) ApplyPatch(patchData []byte) error {
 }
 
 // applyOperation applies a single operation to the document.
-func (d *Document) applyOperation(opType common.OperationType, op *patchOperation) error {
+func (d *Document) applyOperation(opType common.OperationType, op *PatchOperation) error {
 	// IDs are already LogicalTimestamp, so no conversion needed
 	opID := op.ID
 	targetID := op.TargetID

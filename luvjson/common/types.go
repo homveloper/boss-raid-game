@@ -17,14 +17,25 @@ var NilSessionID SessionID
 // RootID is the fixed LogicalTimestamp used for the root node.
 var RootID = LogicalTimestamp{SID: NilSessionID, Counter: 0}
 
+// NilID is the zero value for LogicalTimestamp.
+var NilID = LogicalTimestamp{SID: NilSessionID, Counter: 0}
+
 // NewSessionID creates a new SessionID using UUID v7.
 // It panics if the UUID cannot be created.
 func NewSessionID() SessionID {
-	uuid, err := uuid.NewV7()
-	if err != nil {
-		panic(fmt.Sprintf("failed to create SessionID: %v", err))
+	const retry = 3
+
+	var lastErr error
+	var id uuid.UUID
+	for i := 0; i < retry; i++ {
+		id, lastErr = uuid.NewV7()
 	}
-	return SessionID(uuid)
+
+	if lastErr != nil {
+		panic(lastErr)
+	}
+
+	return SessionID(id)
 }
 
 // SessionIDFromUint64 creates a SessionID from a uint64 value.

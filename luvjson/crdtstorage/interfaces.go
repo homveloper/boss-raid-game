@@ -35,6 +35,30 @@ type Storage interface {
 	// peerID가 비어 있으면 모든 피어와 동기화합니다.
 	SyncAllDocuments(ctx context.Context, peerID string) error
 
+	// SaveDocument는 문서를 저장합니다.
+	SaveDocument(ctx context.Context, doc *Document) error
+
+	// CreateSnapshot은 문서의 스냅샷을 생성합니다.
+	CreateSnapshot(ctx context.Context, doc *Document) (*DocumentSnapshot, error)
+
+	// SaveSnapshot은 문서의 스냅샷을 저장합니다.
+	SaveSnapshot(ctx context.Context, doc *Document) error
+
+	// ListSnapshots은 문서의 모든 스냅샷 목록을 반환합니다.
+	ListSnapshots(ctx context.Context, documentID string) ([]int64, error)
+
+	// LoadSnapshot은 문서의 스냅샷을 로드합니다.
+	LoadSnapshot(ctx context.Context, documentID string, version int64) (*DocumentSnapshot, error)
+
+	// RestoreFromSnapshot은 스냅샷에서 문서를 복원합니다.
+	RestoreFromSnapshot(ctx context.Context, documentID string, version int64) (interface{}, error)
+
+	// DeleteSnapshot은 문서의 스냅샷을 삭제합니다.
+	DeleteSnapshot(ctx context.Context, documentID string, version int64) error
+
+	// DeleteAllSnapshots은 문서의 모든 스냅샷을 삭제합니다.
+	DeleteAllSnapshots(ctx context.Context, documentID string) error
+
 	// Close는 저장소를 닫습니다.
 	Close() error
 }
@@ -63,8 +87,7 @@ type Document struct {
 	// Metadata는 문서 메타데이터입니다.
 	Metadata map[string]interface{}
 
-	// storage는 이 문서가 속한 저장소입니다.
-	storage Storage
+	// 저장소 의존성 제거
 
 	// ctx는 문서의 컨텍스트입니다.
 	ctx context.Context

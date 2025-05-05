@@ -15,7 +15,6 @@ import (
 	"tictactoe/luvjson/api"
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
-	"tictactoe/luvjson/crdtpatch"
 	"tictactoe/luvjson/crdtpubsub"
 	"tictactoe/luvjson/crdtsync"
 )

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
-	"tictactoe/luvjson/crdt/common"
-	"tictactoe/luvjson/crdt/crdtpatch"
+	"tictactoe/luvjson/crdtpatch"
 )
 
 // TestDocumentRootType은 CRDT 문서의 루트 노드 타입을 테스트합니다.
@@ -87,7 +87,7 @@ func TestDocumentRootType(t *testing.T) {
 // TestStorageDocumentInitialization은 Storage 문서 초기화를 테스트합니다.
 func TestStorageDocumentInitialization(t *testing.T) {
 	// 임시 스토리지 생성
-	storage, err := NewMemoryStorage()
+	storage, err := NewStorageWithCustomPersistence(context.Background(), DefaultStorageOptions(), NewMemoryPersistence())
 	require.NoError(t, err)
 
 	// 문서 생성
@@ -159,11 +159,11 @@ func TestStorageDocumentInitialization(t *testing.T) {
 	assert.Equal(t, "Test Todo", todoMap["title"])
 
 	// 문서 저장
-	err = storage.SaveDocument(context.Background(), doc)
+	err = doc.Save(context.Background())
 	require.NoError(t, err)
 
 	// 문서 로드
-	loadedDoc, err := storage.LoadDocument(context.Background(), docID)
+	loadedDoc, err := storage.GetDocument(context.Background(), docID)
 	require.NoError(t, err)
 
 	// 로드된 문서 뷰 가져오기
@@ -186,7 +186,7 @@ func TestStorageDocumentInitialization(t *testing.T) {
 // TestTodoAppScenario는 Todo 앱 시나리오를 테스트합니다.
 func TestTodoAppScenario(t *testing.T) {
 	// 임시 스토리지 생성
-	storage, err := NewMemoryStorage()
+	storage, err := NewStorageWithCustomPersistence(context.Background(), DefaultStorageOptions(), NewMemoryPersistence())
 	require.NoError(t, err)
 
 	// 문서 생성
@@ -208,7 +208,7 @@ func TestTodoAppScenario(t *testing.T) {
 
 	// Todo 항목 추가
 	for i := 1; i <= 3; i++ {
-		pb = crdtpatch.NewPatchBuilder(sessionID, i+1)
+		pb = crdtpatch.NewPatchBuilder(sessionID, uint64(i+1))
 		todoID := fmt.Sprintf("todo-%d", i)
 		todoItem := map[string]interface{}{
 			"title":     fmt.Sprintf("Test Todo %d", i),
@@ -244,11 +244,11 @@ func TestTodoAppScenario(t *testing.T) {
 	}
 
 	// 문서 저장
-	err = storage.SaveDocument(context.Background(), doc)
+	err = doc.Save(context.Background())
 	require.NoError(t, err)
 
 	// 문서 로드
-	loadedDoc, err := storage.LoadDocument(context.Background(), docID)
+	loadedDoc, err := storage.GetDocument(context.Background(), docID)
 	require.NoError(t, err)
 
 	// 로드된 문서 뷰 가져오기

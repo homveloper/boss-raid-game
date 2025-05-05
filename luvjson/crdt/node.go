@@ -221,6 +221,12 @@ func (n *LWWValueNode) UnmarshalJSON(data []byte) error {
 			valueNode = &ConstantNode{}
 		case common.NodeTypeStr:
 			valueNode = &RGAStringNode{}
+		case common.NodeTypeArr:
+			valueNode = &RGAArrayNode{}
+		case common.NodeTypeVec:
+			valueNode = &LWWVectorNode{}
+		case common.NodeTypeBin:
+			valueNode = &RGABinaryNode{}
 		default:
 			return common.ErrInvalidNodeType{Type: valueType.Type}
 		}
@@ -524,6 +530,12 @@ func (n *RootNode) UnmarshalJSON(data []byte) error {
 			valueNode = &ConstantNode{}
 		case common.NodeTypeStr:
 			valueNode = &RGAStringNode{}
+		case common.NodeTypeArr:
+			valueNode = &RGAArrayNode{}
+		case common.NodeTypeVec:
+			valueNode = &LWWVectorNode{}
+		case common.NodeTypeBin:
+			valueNode = &RGABinaryNode{}
 		default:
 			return common.ErrInvalidNodeType{Type: valueType.Type}
 		}
@@ -564,8 +576,21 @@ func (n *RGAStringNode) Type() common.NodeType {
 	return common.NodeTypeStr
 }
 
+func (n *RGAStringNode) Length() int {
+	return len(n.value())
+}
+
 // Value returns the value of the node.
 func (n *RGAStringNode) Value() interface{} {
+	return n.value()
+}
+
+func (n *RGAStringNode) String() string {
+	return n.value()
+}
+
+// value returns the string value of the node.
+func (n *RGAStringNode) value() string {
 	var result string
 	for _, elem := range n.NodeElements {
 		if !elem.NodeDeleted {
