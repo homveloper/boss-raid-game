@@ -2,7 +2,6 @@ package crdtpatch
 
 import (
 	"fmt"
-
 	"tictactoe/luvjson/common"
 )
 

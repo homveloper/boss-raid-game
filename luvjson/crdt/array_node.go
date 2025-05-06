@@ -43,7 +43,7 @@ func (n *RGAArrayNode) Value() interface{} {
 
 // IsRoot returns true if this is a root node.
 func (n *RGAArrayNode) IsRoot() bool {
-	// Check if the node has the RootID
+	// Check if the node has the common.RootID
 	return n.NodeId.Compare(common.RootID) == 0
 }
 
@@ -91,7 +91,7 @@ func (n *RGAArrayNode) Insert(afterID common.LogicalTimestamp, id common.Logical
 		}
 	}
 
-	// Check if afterID is not the RootID
+	// Check if afterID is not the common.RootID
 	if pos == -1 && afterID.Compare(common.RootID) != 0 {
 		return false
 	}

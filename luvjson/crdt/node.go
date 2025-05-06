@@ -52,7 +52,7 @@ func (n *ConstantNode) Type() common.NodeType {
 
 // IsRoot returns true if this is a root node.
 func (n *ConstantNode) IsRoot() bool {
-	// Check if the node has the RootID
+	// Check if the node has the common.RootID
 	return n.NodeId.Compare(common.RootID) == 0
 }
 
@@ -134,7 +134,7 @@ func (n *LWWValueNode) Value() interface{} {
 
 // IsRoot returns true if this is a root node.
 func (n *LWWValueNode) IsRoot() bool {
-	// Check if the node has the RootID
+	// Check if the node has the common.RootID
 	return n.NodeId.Compare(common.RootID) == 0
 }
 
@@ -284,7 +284,7 @@ func (n *LWWObjectNode) Value() interface{} {
 
 // IsRoot returns true if this is a root node.
 func (n *LWWObjectNode) IsRoot() bool {
-	// Check if the node has the RootID
+	// Check if the node has the common.RootID
 	return n.NodeId.Compare(common.RootID) == 0
 }
 
@@ -606,7 +606,7 @@ func (n *RGAStringNode) value() string {
 
 // IsRoot returns true if this is a root node.
 func (n *RGAStringNode) IsRoot() bool {
-	// Check if the node has the RootID
+	// Check if the node has the common.RootID
 	return n.NodeId.Compare(common.RootID) == 0
 }
 
@@ -621,7 +621,7 @@ func (n *RGAStringNode) Insert(afterID common.LogicalTimestamp, id common.Logica
 		}
 	}
 
-	// Check if afterID is not the RootID
+	// Check if afterID is not the common.RootID
 	if pos == -1 && afterID.Compare(common.RootID) != 0 {
 		return false
 	}

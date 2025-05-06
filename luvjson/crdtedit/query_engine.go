@@ -1,7 +1,7 @@
 package crdtedit
 
 import (
-	"fmt"
+	"github.com/pkg/errors"
 
 	"tictactoe/luvjson/crdt"
 )
@@ -24,44 +24,48 @@ func NewQueryEngine(doc *crdt.Document, resolver *PathResolver) *QueryEngine {
 func (e *QueryEngine) GetValue(path string) (any, error) {
 	nodeID, err := e.resolver.ResolveNodePath(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve path %s: %w", path, err)
+		return nil, errors.Wrapf(err, "failed to resolve path %s", path)
 	}
 
 	node, err := e.doc.GetNode(nodeID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node at path %s: %w", path, err)
+		return nil, errors.Wrapf(err, "failed to get node at path %s", path)
 	}
 
-	return e.doc.GetNodeValue(node)
+	value, err := e.doc.GetNodeValue(node)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get node value at path %s", path)
+	}
+	return value, nil
 }
 
 // GetObject returns the object at the given path
 func (e *QueryEngine) GetObject(path string) (map[string]any, error) {
 	nodeID, err := e.resolver.ResolveNodePath(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve path %s: %w", path, err)
+		return nil, errors.Wrapf(err, "failed to resolve path %s", path)
 	}
 
 	node, err := e.doc.GetNode(nodeID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node at path %s: %w", path, err)
+		return nil, errors.Wrapf(err, "failed to get node at path %s", path)
 	}
 
 	objNode, ok := node.(*crdt.LWWObjectNode)
 	if !ok {
-		return nil, fmt.Errorf("node at path %s is not an object", path)
+		return nil, errors.Errorf("node at path %s is not an object", path)
 	}
 
 	result := make(map[string]any)
 	for _, key := range objNode.Keys() {
 		childNode := objNode.Get(key)
 		if childNode == nil {
-			return nil, fmt.Errorf("key %s does not exist", key)
+			return nil, errors.Errorf("key %s does not exist", key)
 		}
 
 		value, err := e.doc.GetNodeValue(childNode)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get value for key %s: %w", key, err)
+			return nil, errors.Wrapf(err, "failed to get value for key %s", key)
 		}
 
 		result[key] = value
@@ -74,17 +78,17 @@ func (e *QueryEngine) GetObject(path string) (map[string]any, error) {
 func (e *QueryEngine) GetArray(path string) ([]any, error) {
 	nodeID, err := e.resolver.ResolveNodePath(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve path %s: %w", path, err)
+		return nil, errors.Wrapf(err, "failed to resolve path %s", path)
 	}
 
 	node, err := e.doc.GetNode(nodeID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node at path %s: %w", path, err)
+		return nil, errors.Wrapf(err, "failed to get node at path %s", path)
 	}
 
 	arrNode, ok := node.(*crdt.RGAArrayNode)
 	if !ok {
-		return nil, fmt.Errorf("node at path %s is not an array", path)
+		return nil, errors.Errorf("node at path %s is not an array", path)
 	}
 
 	length := arrNode.Length()
@@ -93,17 +97,17 @@ func (e *QueryEngine) GetArray(path string) ([]any, error) {
 	for i := 0; i < length; i++ {
 		elemID, err := arrNode.Get(i)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get element at index %d: %w", i, err)
+			return nil, errors.Wrapf(err, "failed to get element at index %d", i)
 		}
 
 		elemNode, err := e.doc.GetNode(elemID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get node for element at index %d: %w", i, err)
+			return nil, errors.Wrapf(err, "failed to get node for element at index %d", i)
 		}
 
 		value, err := e.doc.GetNodeValue(elemNode)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get value for element at index %d: %w", i, err)
+			return nil, errors.Wrapf(err, "failed to get value for element at index %d", i)
 		}
 
 		result[i] = value
@@ -121,7 +125,7 @@ func (e *QueryEngine) GetString(path string) (string, error) {
 
 	str, ok := value.(string)
 	if !ok {
-		return "", fmt.Errorf("value at path %s is not a string", path)
+		return "", errors.Errorf("value at path %s is not a string", path)
 	}
 
 	return str, nil
@@ -142,7 +146,7 @@ func (e *QueryEngine) GetNumber(path string) (float64, error) {
 	case int64:
 		return float64(v), nil
 	default:
-		return 0, fmt.Errorf("value at path %s is not a number", path)
+		return 0, errors.Errorf("value at path %s is not a number", path)
 	}
 }
 
@@ -155,7 +159,7 @@ func (e *QueryEngine) GetBoolean(path string) (bool, error) {
 
 	b, ok := value.(bool)
 	if !ok {
-		return false, fmt.Errorf("value at path %s is not a boolean", path)
+		return false, errors.Errorf("value at path %s is not a boolean", path)
 	}
 
 	return b, nil

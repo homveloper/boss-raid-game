@@ -2,7 +2,6 @@ package crdt
 
 import (
 	"testing"
-
 	"tictactoe/luvjson/common"
 
 	"github.com/stretchr/testify/assert"

@@ -9,8 +9,8 @@ import (
 // LWWVectorNode represents a Last-Write-Wins vector node.
 // This is similar to LWWObjectNode but with integer indices instead of string keys.
 type LWWVectorNode struct {
-	NodeId     common.LogicalTimestamp    `json:"id"`
-	NodeFields map[int]*LWWVectorField    `json:"fields,omitempty"`
+	NodeId     common.LogicalTimestamp `json:"id"`
+	NodeFields map[int]*LWWVectorField `json:"fields,omitempty"`
 }
 
 // LWWVectorField represents a field in a LWW vector.

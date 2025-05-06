@@ -139,7 +139,14 @@ func (d *Document) GetNodeValue(node Node) (any, error) {
 
 // ApplyOperation applies an operation to the document.
 func (d *Document) ApplyOperation(op interface{}) error {
-	// This is a placeholder implementation
-	// In a real implementation, this would handle different operation types
-	return fmt.Errorf("operation application not implemented")
+	// Convert the operation to a crdtpatch.Operation
+	operation, ok := op.(interface {
+		Apply(doc *Document) error
+	})
+	if !ok {
+		return fmt.Errorf("invalid operation type: %T", op)
+	}
+
+	// Apply the operation
+	return operation.Apply(d)
 }

@@ -2,6 +2,7 @@ package crdtpatch
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"tictactoe/luvjson/common"
@@ -68,25 +69,13 @@ func (o *NewOperation) Apply(doc *crdt.Document) error {
 
 	switch o.NodeType {
 	case common.NodeTypeCon:
-		// 시간 값을 처리하기 위한 특별한 로직
-		if timeVal, ok := o.Value.(map[string]interface{}); ok {
-			if timeType, ok := timeVal["type"].(string); ok && timeType == "time" {
-				if timeStr, ok := timeVal["value"].(string); ok {
-					// RFC3339 형식의 시간 문자열을 time.Time으로 파싱
-					parsedTime, err := time.Parse(time.RFC3339, timeStr)
-					if err == nil {
-						// 파싱된 시간을 사용
-						node = crdt.NewConstantNode(o.ID, parsedTime)
-						break
-					}
-				}
-			}
-		}
 		node = crdt.NewConstantNode(o.ID, o.Value)
 	case common.NodeTypeVal:
 		node = crdt.NewLWWValueNode(o.ID, o.ID, crdt.NewConstantNode(o.ID, nil))
 	case common.NodeTypeObj:
 		node = crdt.NewLWWObjectNode(o.ID)
+	case common.NodeTypeArr:
+		node = crdt.NewRGAArrayNode(o.ID)
 	case common.NodeTypeStr:
 		node = crdt.NewRGAStringNode(o.ID)
 	case common.NodeTypeRoot:
@@ -235,24 +224,13 @@ func (o *InsOperation) Apply(doc *crdt.Document) error {
 	}
 
 	switch node := target.(type) {
+	case *crdt.RootNode:
+		// Update the root node's value
+		valueNode := crdt.NewConstantNode(o.ID, o.Value)
+		node.NodeValue = valueNode
+		doc.AddNode(valueNode)
 	case *crdt.LWWValueNode:
 		// Update the value
-		// time.Time 값을 특별하게 처리
-		if timeVal, ok := o.Value.(map[string]interface{}); ok {
-			if timeType, ok := timeVal["type"].(string); ok && timeType == "time" {
-				if timeStr, ok := timeVal["value"].(string); ok {
-					// RFC3339 형식의 시간 문자열을 time.Time으로 파싱
-					parsedTime, err := time.Parse(time.RFC3339, timeStr)
-					if err == nil {
-						// 파싱된 시간을 사용
-						valueNode := crdt.NewConstantNode(o.ID, parsedTime)
-						node.SetValue(o.ID, valueNode)
-						doc.AddNode(valueNode)
-						return nil
-					}
-				}
-			}
-		}
 		valueNode := crdt.NewConstantNode(o.ID, o.Value)
 		node.SetValue(o.ID, valueNode)
 		doc.AddNode(valueNode)
@@ -260,22 +238,6 @@ func (o *InsOperation) Apply(doc *crdt.Document) error {
 		// Update a field
 		if obj, ok := o.Value.(map[string]interface{}); ok {
 			for key, val := range obj {
-				// time.Time 값을 특별하게 처리
-				if timeVal, ok := val.(map[string]interface{}); ok {
-					if timeType, ok := timeVal["type"].(string); ok && timeType == "time" {
-						if timeStr, ok := timeVal["value"].(string); ok {
-							// RFC3339 형식의 시간 문자열을 time.Time으로 파싱
-							parsedTime, err := time.Parse(time.RFC3339, timeStr)
-							if err == nil {
-								// 파싱된 시간을 사용
-								valueNode := crdt.NewConstantNode(o.ID, parsedTime)
-								node.Set(key, o.ID, valueNode)
-								doc.AddNode(valueNode)
-								continue
-							}
-						}
-					}
-				}
 				valueNode := crdt.NewConstantNode(o.ID, val)
 				node.Set(key, o.ID, valueNode)
 				doc.AddNode(valueNode)
@@ -286,9 +248,26 @@ func (o *InsOperation) Apply(doc *crdt.Document) error {
 		if str, ok := o.Value.(string); ok {
 			node.Insert(o.TargetID, o.ID, str)
 		}
+	case *crdt.RGAArrayNode:
+		// Insert an element
+		if obj, ok := o.Value.(map[string]interface{}); ok {
+			for indexStr, val := range obj {
+				// Convert index string to int
+				var index int
+				fmt.Sscanf(indexStr, "%d", &index)
+
+				// Create a new node for the value
+				valueNode := crdt.NewConstantNode(o.ID, val)
+				doc.AddNode(valueNode)
+
+				// Insert the node at the specified index
+				// Use the existing Insert method with afterID = RootID
+				node.Insert(common.RootID, o.ID, valueNode.ID())
+			}
+		}
 	// Add other node types as needed
 	default:
-		return common.ErrInvalidOperation{Message: "unsupported node type for 'ins' operation"}
+		return common.ErrInvalidOperation{Message: fmt.Sprintf("unsupported node type %s for 'ins' operation", node.Type())}
 	}
 
 	return nil
@@ -314,14 +293,7 @@ func (o *InsOperation) MarshalJSON() ([]byte, error) {
 		Obj: o.TargetID,
 	}
 
-	// time.Time 값을 특별하게 처리
-	if timeVal, ok := o.Value.(time.Time); ok {
-		// time.Time 값을 RFC3339 형식의 문자열로 변환하여 저장
-		op.Value = map[string]interface{}{
-			"type":  "time",
-			"value": timeVal.Format(time.RFC3339),
-		}
-	} else if mapVal, ok := o.Value.(map[string]interface{}); ok {
+	if mapVal, ok := o.Value.(map[string]interface{}); ok {
 		// 맵 내부의 time.Time 값을 처리
 		processedMap := make(map[string]interface{})
 		for k, v := range mapVal {

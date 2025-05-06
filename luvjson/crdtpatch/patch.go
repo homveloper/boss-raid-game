@@ -3,6 +3,8 @@ package crdtpatch
 import (
 	"encoding/json"
 
+	"github.com/pkg/errors"
+
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
 )
@@ -57,7 +59,7 @@ func (p *Patch) AddOperation(op Operation) {
 func (p *Patch) Apply(doc *crdt.Document) error {
 	for _, op := range p.operations {
 		if err := op.Apply(doc); err != nil {
-			return err
+			return errors.Wrap(err, "failed to apply operation")
 		}
 	}
 	return nil

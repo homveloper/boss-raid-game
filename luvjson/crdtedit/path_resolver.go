@@ -1,9 +1,10 @@
 package crdtedit
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"tictactoe/luvjson/common"
 	"tictactoe/luvjson/crdt"
@@ -53,9 +54,7 @@ func (r *PathResolver) ResolveNodePath(path string) (common.LogicalTimestamp, er
 		// Check if segment contains array index
 		if idx := strings.Index(segment, "["); idx >= 0 {
 			if !strings.HasSuffix(segment, "]") {
-				// Create a zero value LogicalTimestamp
-				zeroID := common.LogicalTimestamp{SID: common.NilSessionID, Counter: 0}
-				return zeroID, fmt.Errorf("invalid array index syntax: %s", segment)
+				return common.NilID, errors.Errorf("invalid array index syntax: %s", segment)
 			}
 
 			// Extract key and index
@@ -64,61 +63,66 @@ func (r *PathResolver) ResolveNodePath(path string) (common.LogicalTimestamp, er
 			index, err := strconv.Atoi(indexStr)
 			if err != nil {
 				// Create a zero value LogicalTimestamp
-				zeroID := common.LogicalTimestamp{SID: common.NilSessionID, Counter: 0}
-				return zeroID, fmt.Errorf("invalid array index: %s", indexStr)
+				return common.NilID, errors.Errorf("invalid array index: %s", indexStr)
 			}
 
-			// Get object node
+			// Get node
 			node, err := r.doc.GetNode(currentID)
 			if err != nil {
-				return common.RootID, fmt.Errorf("failed to get node: %w", err)
+				return common.NilID, errors.Wrap(err, "failed to get node")
 			}
 
-			objNode, ok := node.(*crdt.LWWObjectNode)
-			if !ok {
-				return common.RootID, fmt.Errorf("node is not an object at segment: %s", segment)
+			// 노드 타입에 따라 다르게 처리
+			switch n := node.(type) {
+			case *crdt.LWWObjectNode:
+				// 객체 노드인 경우
+				childNode := n.Get(key)
+				if childNode == nil {
+					return common.NilID, errors.Errorf("key not found: %s", key)
+				}
+
+				// 자식 노드가 배열인지 확인
+				arrayNode, err := r.doc.GetNode(childNode.ID())
+				if err != nil {
+					return common.NilID, errors.Wrap(err, "failed to get array node")
+				}
+
+				// 배열 노드인지 확인
+				switch arrNode := arrayNode.(type) {
+				case *crdt.RGAArrayNode:
+					// 배열 노드인 경우 인덱스 확인
+					if index < 0 || index >= arrNode.Length() {
+						return common.NilID, errors.Errorf("array index out of bounds: %d", index)
+					}
+
+					// 배열 요소 가져오기
+					elementID, err := arrNode.Get(index)
+					if err != nil {
+						return common.NilID, errors.Wrap(err, "failed to get array element")
+					}
+
+					currentID = elementID
+				default:
+					return common.NilID, errors.Errorf("node is not an array at segment: %s", segment)
+				}
+			default:
+				return common.NilID, errors.Errorf("node is not an object at segment: %s", segment)
 			}
-
-			// Get array node
-			arrayNode := objNode.Get(key)
-			if arrayNode == nil {
-				return common.RootID, fmt.Errorf("key not found: %s", key)
-			}
-
-			// Use the array node directly
-			// For simplicity, we'll assume it's an LWWObjectNode that can act as an array
-			// In a real implementation, this would check for array type
-
-			// Check if the index is valid
-			// Since we don't have a proper array implementation, we'll skip bounds checking
-
-			// Get the element at the index
-			// In a real implementation, this would use proper array access
-			indexKey := fmt.Sprintf("%d", index)
-			elementNode := objNode.Get(indexKey)
-			if elementNode == nil {
-				return common.RootID, fmt.Errorf("array index out of bounds: %d", index)
-			}
-
-			// Get the element ID
-			elementID := elementNode.ID()
-
-			currentID = elementID
 		} else {
 			// Regular object key
 			node, err := r.doc.GetNode(currentID)
 			if err != nil {
-				return common.RootID, fmt.Errorf("failed to get node: %w", err)
+				return common.NilID, errors.Wrap(err, "failed to get node")
 			}
 
 			objNode, ok := node.(*crdt.LWWObjectNode)
 			if !ok {
-				return common.RootID, fmt.Errorf("node is not an object at segment: %s", segment)
+				return common.NilID, errors.Errorf("node is not an object at segment: %s", segment)
 			}
 
 			childNode := objNode.Get(segment)
 			if childNode == nil {
-				return common.RootID, fmt.Errorf("key not found: %s", segment)
+				return common.NilID, errors.Errorf("key not found: %s", segment)
 			}
 
 			// Get the child ID
@@ -135,7 +139,7 @@ func (r *PathResolver) ResolveNodePath(path string) (common.LogicalTimestamp, er
 func (r *PathResolver) GetNodeType(nodeID common.LogicalTimestamp) (NodeType, error) {
 	node, err := r.doc.GetNode(nodeID)
 	if err != nil {
-		return NodeTypeUnknown, fmt.Errorf("failed to get node: %w", err)
+		return NodeTypeUnknown, errors.Wrap(err, "failed to get node")
 	}
 
 	// Use the node's Type() method to determine its type
@@ -192,7 +196,23 @@ func (r *PathResolver) GetParentPath(path string) (string, string, error) {
 	// Handle array index in key
 	if idx := strings.Index(key, "["); idx >= 0 {
 		if !strings.HasSuffix(key, "]") {
-			return "", "", fmt.Errorf("invalid array index syntax: %s", key)
+			return "", "", errors.Errorf("invalid array index syntax: %s", key)
+		}
+
+		// 배열 인덱스가 유효한지 확인
+		indexStr := key[idx+1 : len(key)-1]
+		_, err := strconv.Atoi(indexStr)
+		if err != nil {
+			return "", "", errors.Errorf("invalid array index: %s", indexStr)
+		}
+
+		// 배열 요소의 경우 부모는 배열 자체
+		if lastDotIndex < 0 {
+			// 최상위 배열인 경우
+			parentPath = key[:idx]
+		} else {
+			// 중첩된 배열인 경우
+			parentPath = path[:lastDotIndex+1] + key[:idx]
 		}
 		key = key[:idx]
 	}
