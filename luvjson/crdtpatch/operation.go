@@ -68,6 +68,10 @@ func (o *NewOperation) Apply(doc *crdt.Document) error {
 	var node crdt.Node
 
 	switch o.NodeType {
+	case common.NodeTypeVec:
+		node = crdt.NewLWWVectorNode(o.ID)
+	case common.NodeTypeBin:
+		node = crdt.NewRGABinaryNode(o.ID)
 	case common.NodeTypeCon:
 		node = crdt.NewConstantNode(o.ID, o.Value)
 	case common.NodeTypeVal:
@@ -224,6 +228,25 @@ func (o *InsOperation) Apply(doc *crdt.Document) error {
 	}
 
 	switch node := target.(type) {
+	case *crdt.ConstantNode:
+		// Update the value
+		node.NodeValue = o.Value
+	case *crdt.LWWVectorNode:
+		// Update an element
+		if obj, ok := o.Value.(map[string]interface{}); ok {
+			for indexStr, val := range obj {
+				// Convert index string to int
+				var index int
+				fmt.Sscanf(indexStr, "%d", &index)
+
+				// Create a new node for the value
+				valueNode := crdt.NewConstantNode(o.ID, val)
+				doc.AddNode(valueNode)
+
+				// Set the value at the specified index
+				node.Set(index, o.ID, valueNode)
+			}
+		}
 	case *crdt.RootNode:
 		// Update the root node's value
 		valueNode := crdt.NewConstantNode(o.ID, o.Value)

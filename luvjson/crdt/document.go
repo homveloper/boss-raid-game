@@ -238,13 +238,11 @@ func (d *Document) parseNodeRecursively(node Node) error {
 		return nil
 	}
 
-	// Skip root nodes (they're already in the index)
-	if node.IsRoot() {
-		return nil
-	}
-
 	// Process based on node type
 	switch n := node.(type) {
+	case *RootNode:
+		// Do nothing
+		return nil
 	case *LWWValueNode:
 		// If the value node has a value, add it to the index
 		if n.NodeValue != nil {
