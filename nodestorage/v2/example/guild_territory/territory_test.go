@@ -38,7 +38,7 @@ func setupTestDB(t *testing.T) (*mongo.Client, *mongo.Collection, func()) {
 // TestTerritoryService_CreateTerritory tests the CreateTerritory method
 func TestTerritoryService_CreateTerritory(t *testing.T) {
 	// Set up test database
-	client, collection, cleanup := setupTestDB(t)
+	_, collection, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create memory cache
@@ -52,7 +52,7 @@ func TestTerritoryService_CreateTerritory(t *testing.T) {
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -76,7 +76,7 @@ func TestTerritoryService_CreateTerritory(t *testing.T) {
 // TestTerritoryService_PlanBuilding tests the PlanBuilding method
 func TestTerritoryService_PlanBuilding(t *testing.T) {
 	// Set up test database
-	client, collection, cleanup := setupTestDB(t)
+	_, collection, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create memory cache
@@ -90,7 +90,7 @@ func TestTerritoryService_PlanBuilding(t *testing.T) {
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -121,7 +121,7 @@ func TestTerritoryService_PlanBuilding(t *testing.T) {
 // TestTerritoryService_ContributeToBuilding tests the ContributeToBuilding method
 func TestTerritoryService_ContributeToBuilding(t *testing.T) {
 	// Set up test database
-	client, collection, cleanup := setupTestDB(t)
+	_, collection, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create memory cache
@@ -135,7 +135,7 @@ func TestTerritoryService_ContributeToBuilding(t *testing.T) {
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -222,7 +222,7 @@ func TestTerritoryService_ContributeToBuilding(t *testing.T) {
 // TestTerritoryService_UpgradeBuilding tests the UpgradeBuilding method
 func TestTerritoryService_UpgradeBuilding(t *testing.T) {
 	// Set up test database
-	client, collection, cleanup := setupTestDB(t)
+	_, collection, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create memory cache
@@ -236,7 +236,7 @@ func TestTerritoryService_UpgradeBuilding(t *testing.T) {
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -317,7 +317,7 @@ func TestTerritoryService_UpgradeBuilding(t *testing.T) {
 // TestTerritoryService_AddResources tests the AddResources method
 func TestTerritoryService_AddResources(t *testing.T) {
 	// Set up test database
-	client, collection, cleanup := setupTestDB(t)
+	_, collection, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Create memory cache
@@ -331,7 +331,7 @@ func TestTerritoryService_AddResources(t *testing.T) {
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, collection, memCache, storageOptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 

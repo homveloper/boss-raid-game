@@ -76,7 +76,7 @@ func setupTestDB(t *testing.T) (*mongo.Client, *mongo.Collection, func()) {
 // setupTestStorage sets up a test storage with memory cache
 func setupTestStorage(t *testing.T) (*StorageImpl[*TestDocument], func()) {
 	// Set up test database
-	client, collection, dbCleanup := setupTestDB(t)
+	_, collection, dbCleanup := setupTestDB(t)
 
 	// Create memory cache
 	memCache := cache.NewMemoryCache[*TestDocument](nil)
@@ -89,7 +89,7 @@ func setupTestStorage(t *testing.T) (*StorageImpl[*TestDocument], func()) {
 
 	// Create storage
 	ctx := context.Background()
-	storage, err := NewStorage[*TestDocument](ctx, client, collection, memCache, options)
+	storage, err := NewStorage[*TestDocument](ctx, collection, memCache, options)
 	require.NoError(t, err, "Failed to create storage")
 
 	// Return a cleanup function that cleans up both the storage and the database

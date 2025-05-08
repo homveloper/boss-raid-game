@@ -37,7 +37,7 @@ func Example() {
 		VersionField: "VectorClock", // Must match the struct field name, not the bson tag
 		CacheTTL:     time.Hour,
 	}
-	storage, err := nodestorage.NewStorage[*Territory](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Territory](ctx, collection, memCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create storage: %v", err)
 	}

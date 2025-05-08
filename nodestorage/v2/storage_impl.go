@@ -37,7 +37,6 @@ type Subscriber[T Cachable[T]] struct {
 
 // StorageImpl implements the Storage interface
 type StorageImpl[T Cachable[T]] struct {
-	client         *mongo.Client
 	collection     *mongo.Collection
 	cache          cache.Cache[T]
 	options        *Options
@@ -56,7 +55,6 @@ type StorageImpl[T Cachable[T]] struct {
 // NewStorage creates a new storage instance
 func NewStorage[T Cachable[T]](
 	ctx context.Context,
-	client *mongo.Client,
 	collection *mongo.Collection,
 	cacheImpl cache.Cache[T],
 	options *Options,
@@ -87,7 +85,6 @@ func NewStorage[T Cachable[T]](
 	}
 
 	storage := &StorageImpl[T]{
-		client:         client,
 		collection:     collection,
 		cache:          cacheImpl,
 		options:        options,
@@ -1188,7 +1185,7 @@ func (s *StorageImpl[T]) WithTransaction(
 	}
 
 	// Start a session
-	session, err := s.client.StartSession()
+	session, err := s.collection.Database().Client().StartSession()
 	if err != nil {
 		return fmt.Errorf("failed to start session: %w", err)
 	}

@@ -71,7 +71,7 @@ func main() {
 		HotDataDecayInterval:  time.Minute,
 	}
 
-	storage, err := nodestorage.NewStorage[*Document](ctx, client, collection, memCache, storageOptions)
+	storage, err := nodestorage.NewStorage[*Document](ctx, collection, memCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create storage: %v", err)
 	}

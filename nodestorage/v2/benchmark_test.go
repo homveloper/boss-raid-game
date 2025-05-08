@@ -201,7 +201,7 @@ func setupBenchmarkStorageWithOptions(b *testing.B, cacheType string, docSize in
 
 	// Create storage
 	ctx := context.Background()
-	storage, err := NewStorage[*BenchDocument](ctx, client, collection, cacheImpl, options)
+	storage, err := NewStorage[*BenchDocument](ctx, collection, cacheImpl, options)
 	if err != nil {
 		if cacheImpl != nil {
 			cacheCleanup()

@@ -16,7 +16,7 @@ import (
 // TestStorageWithMemoryCache tests the Storage implementation with memory cache
 func TestStorageWithMemoryCache(t *testing.T) {
 	// Set up test database
-	client, collection, dbCleanup := setupTestDB(t)
+	_, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
 
 	// Create memory cache
@@ -31,7 +31,7 @@ func TestStorageWithMemoryCache(t *testing.T) {
 
 	// Create storage
 	ctx := context.Background()
-	storage, err := NewStorage[*TestDocument](ctx, client, collection, memCache, options)
+	storage, err := NewStorage[*TestDocument](ctx, collection, memCache, options)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -88,7 +88,7 @@ func TestStorageWithMemoryCache(t *testing.T) {
 // TestStorageCacheTTL tests the TTL functionality of the cache in Storage
 func TestStorageCacheTTL(t *testing.T) {
 	// Set up test database
-	client, collection, dbCleanup := setupTestDB(t)
+	_, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
 
 	// Create memory cache
@@ -103,7 +103,7 @@ func TestStorageCacheTTL(t *testing.T) {
 
 	// Create storage
 	ctx := context.Background()
-	storage, err := NewStorage[*TestDocument](ctx, client, collection, memCache, options)
+	storage, err := NewStorage[*TestDocument](ctx, collection, memCache, options)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -135,7 +135,7 @@ func TestStorageCacheTTL(t *testing.T) {
 // TestStorageCacheConcurrency tests concurrent access to the storage with cache
 func TestStorageCacheConcurrency(t *testing.T) {
 	// Set up test database
-	client, collection, dbCleanup := setupTestDB(t)
+	_, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
 
 	// Create memory cache
@@ -150,7 +150,7 @@ func TestStorageCacheConcurrency(t *testing.T) {
 
 	// Create storage
 	ctx := context.Background()
-	storage, err := NewStorage[*TestDocument](ctx, client, collection, memCache, options)
+	storage, err := NewStorage[*TestDocument](ctx, collection, memCache, options)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
@@ -214,7 +214,7 @@ func TestStorageCacheConcurrency(t *testing.T) {
 // TestStorageCacheInvalidation tests that the cache is properly invalidated
 func TestStorageCacheInvalidation(t *testing.T) {
 	// Set up test database
-	client, collection, dbCleanup := setupTestDB(t)
+	_, collection, dbCleanup := setupTestDB(t)
 	defer dbCleanup()
 
 	// Create memory cache
@@ -229,7 +229,7 @@ func TestStorageCacheInvalidation(t *testing.T) {
 
 	// Create storage
 	ctx := context.Background()
-	storage, err := NewStorage[*TestDocument](ctx, client, collection, memCache, storageoptions)
+	storage, err := NewStorage[*TestDocument](ctx, collection, memCache, storageoptions)
 	require.NoError(t, err, "Failed to create storage")
 	defer storage.Close()
 
