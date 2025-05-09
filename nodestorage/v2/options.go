@@ -314,7 +314,7 @@ func NewEditOptions(opts ...EditOption) *EditOptions {
 		RetryDelay:    int64(time.Millisecond * 10),
 		MaxRetryDelay: int64(time.Millisecond * 100),
 		RetryJitter:   0.1,
-		Timeout:       int64(time.Second * 10),
+		Timeout:       int64(time.Second * 30),
 	}
 
 	// Apply options

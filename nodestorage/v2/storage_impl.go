@@ -213,13 +213,28 @@ func (s *StorageImpl[T]) FindOneAndUpsert(ctx context.Context, data T) (T, error
 	opts.SetUpsert(true)                  // Create if not exists
 	opts.SetReturnDocument(options.After) // Return the document after update
 
+	// Convert data to BSON document
+	dataBytes, err := bson.Marshal(data)
+	if err != nil {
+		return empty, fmt.Errorf("failed to marshal document: %w", err)
+	}
+
+	// Unmarshal to map to manipulate fields
+	var dataMap bson.M
+	if err := bson.Unmarshal(dataBytes, &dataMap); err != nil {
+		return empty, fmt.Errorf("failed to unmarshal document: %w", err)
+	}
+
 	// Create filter for the document ID
 	filter := bson.M{"_id": id}
+
+	// Remove _id field from the update document
+	delete(dataMap, "_id")
 
 	// Create update document with $setOnInsert to only set fields when document is created
 	// If document already exists, this won't modify it
 	update := bson.M{
-		"$setOnInsert": data,
+		"$setOnInsert": dataMap,
 	}
 
 	// Execute FindOneAndUpdate operation
@@ -325,24 +340,17 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		var result *mongo.UpdateResult
 
 		if diff.BsonPatch != nil && !diff.BsonPatch.IsEmpty() {
-			// Fallback to BsonPatch if BsonPatchV2 is not available
-			// Create a copy of the BsonPatch to avoid modifying the original
-			updateDoc, marshalErr := diff.BsonPatch.MarshalBSON()
-			if marshalErr != nil {
-				return empty, nil, fmt.Errorf("failed to marshal BsonPatch: %w", marshalErr)
-			}
 
-			// Add version increment to update
-			var updateMap bson.M
-			if unmarshalErr := bson.Unmarshal(updateDoc, &updateMap); unmarshalErr != nil {
-				return empty, nil, fmt.Errorf("failed to unmarshal BsonPatch: %w", unmarshalErr)
-			}
+			// check version field is already included in the patch
+			versionAlreadyIncluded := diff.BsonPatch.HasField(versionBSONTag)
 
-			// Add version increment
-			if _, ok := updateMap["$inc"]; !ok {
-				updateMap["$inc"] = bson.M{}
+			// If version is not already included, add $inc to increment it
+			if !versionAlreadyIncluded {
+				if diff.BsonPatch.Inc == nil {
+					diff.BsonPatch.Inc = bson.M{}
+				}
+				diff.BsonPatch.Inc[versionBSONTag] = 1
 			}
-			updateMap["$inc"].(bson.M)[versionBSONTag] = 1
 
 			// Check if we need to use array filters
 			arrayFilters := diff.BsonPatch.GetArrayFilters()
@@ -369,7 +377,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 						"_id":          id,
 						versionBSONTag: currentVersion,
 					},
-					updateMap,
+					diff.BsonPatch,
 					updateOpts,
 				).Decode(&updatedDoc)
 
@@ -405,7 +413,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 						"_id":          id,
 						versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
 					},
-					updateMap,
+					diff.BsonPatch,
 				)
 
 				if err != nil {
@@ -422,7 +430,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 							versionBSONTag: currentVersion,
 						},
 						bson.M{
-							"$set": docCopy,
+							"$set": updatedDoc,
 						},
 					)
 				}
@@ -566,20 +574,34 @@ func getDocumentID[T Cachable[T]](data T) (primitive.ObjectID, error) {
 	if v.Kind() == reflect.Ptr && !v.IsNil() {
 		// Get the element the pointer points to
 		elem := v.Elem()
+		elemType := elem.Type()
 
-		// Check if the struct has an ID field of type ObjectID
-		idField := elem.FieldByName("ID")
-		if idField.IsValid() && idField.Type() == reflect.TypeOf(primitive.ObjectID{}) {
-			// If the document already has an ID, use it
-			id := idField.Interface().(primitive.ObjectID)
-			if id == primitive.NilObjectID {
-				// Generate a new ID if it's nil
-				id = primitive.NewObjectID()
-				idField.Set(reflect.ValueOf(id))
+		// bson:"_id" 태그가 있는 필드 찾기
+		for i := 0; i < elemType.NumField(); i++ {
+			field := elemType.Field(i)
+			bsonTag := field.Tag.Get("bson")
+
+			// bson 태그 파싱 (콤마로 구분된 옵션이 있을 수 있음)
+			tagParts := strings.Split(bsonTag, ",")
+			if len(tagParts) > 0 && tagParts[0] == "_id" {
+				// _id 태그가 있는 필드 찾음
+				fieldValue := elem.Field(i)
+
+				// ObjectID 타입인지 확인
+				if fieldValue.Type() == reflect.TypeOf(primitive.ObjectID{}) {
+					id := fieldValue.Interface().(primitive.ObjectID)
+					if id == primitive.NilObjectID {
+						// Generate a new ID if it's nil
+						id = primitive.NewObjectID()
+						fieldValue.Set(reflect.ValueOf(id))
+					}
+					return id, nil
+				}
 			}
-			return id, nil
 		}
-		// If the document doesn't have an ID field, generate a new one
+
+		// bson:"_id" 태그가 있는 필드를 찾지 못한 경우 새 ID 생성
+		// 이 경우 ID는 생성되지만 원본 데이터에는 설정되지 않음
 		return primitive.NewObjectID(), nil
 	}
 
@@ -624,7 +646,7 @@ func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
 
 	// Create diff object with all patch formats
 	return &Diff{
-		HasChanges: bsonPatch.IsEmpty(),
+		HasChanges: !bsonPatch.IsEmpty(),
 		MergePatch: mergePatch,
 		BsonPatch:  bsonPatch,
 	}, nil

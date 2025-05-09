@@ -89,6 +89,20 @@ func (p *BsonPatch) IsEmpty() bool {
 		len(p.PullAll) == 0
 }
 
+// HasField checks if a specific field is already included in the patch
+func (p *BsonPatch) HasField(field string) bool {
+	// operation lists
+	ops := []bson.M{p.Set, p.Unset, p.Inc, p.Push, p.Pull, p.AddToSet, p.PullAll}
+
+	for _, op := range ops {
+		if _, exists := op[field]; exists {
+			return true
+		}
+	}
+
+	return false
+}
+
 // StructFieldInfo contains cached information about a struct field.
 type StructFieldInfo struct {
 	Name    string // Original field name
