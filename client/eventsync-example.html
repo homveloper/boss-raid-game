@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EventSync 예제</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 {
+      color: #333;
+    }
+    .status {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .status.online {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .status.offline {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .status.connecting {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+    .resources {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .resource {
+      text-align: center;
+      padding: 10px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+    }
+    .resource-value {
+      font-size: 24px;
+      font-weight: bold;
+      margin: 5px 0;
+    }
+    .resource-name {
+      font-size: 12px;
+      color: #6c757d;
+    }
+    .events {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+    }
+    .event {
+      padding: 8px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      border-left: 4px solid #6c757d;
+    }
+    .event.create {
+      border-left-color: #28a745;
+    }
+    .event.update {
+      border-left-color: #007bff;
+    }
+    .event.delete {
+      border-left-color: #dc3545;
+    }
+    .event-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #6c757d;
+      margin-bottom: 5px;
+    }
+    .event-content {
+      font-size: 14px;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #0069d9;
+    }
+    button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+    input, select {
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #495057;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div>
+      <div class="card">
+        <h2>연결 설정</h2>
+        <div class="form-group">
+          <label for="serverUrl">서버 URL</label>
+          <input type="text" id="serverUrl" value="http://localhost:8080" />
+        </div>
+        <div class="form-group">
+          <label for="documentId">문서 ID</label>
+          <input type="text" id="documentId" placeholder="문서 ID를 입력하세요" />
+        </div>
+        <div class="form-group">
+          <label for="transport">전송 방식</label>
+          <select id="transport">
+            <option value="websocket">WebSocket</option>
+            <option value="sse">Server-Sent Events (SSE)</option>
+          </select>
+        </div>
+        <div class="actions">
+          <button id="connectBtn">연결</button>
+          <button id="disconnectBtn" disabled>연결 해제</button>
+          <button id="createGameBtn">새 게임 생성</button>
+        </div>
+        <div class="form-group" style="margin-top: 15px;">
+          <div>상태: <span id="connectionStatus" class="status offline">오프라인</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>게임 상태</h2>
+        <div id="gameInfo">
+          <p>연결 후 게임 정보가 표시됩니다.</p>
+        </div>
+        <div class="resources" id="resources" style="display: none;">
+          <div class="resource">
+            <div class="resource-value" id="goldValue">0</div>
+            <div class="resource-name">골드</div>
+          </div>
+          <div class="resource">
+            <div class="resource-value" id="woodValue">0</div>
+            <div class="resource-name">목재</div>
+          </div>
+          <div class="resource">
+            <div class="resource-value" id="stoneValue">0</div>
+            <div class="resource-name">석재</div>
+          </div>
+          <div class="resource">
+            <div class="resource-value" id="foodValue">0</div>
+            <div class="resource-name">식량</div>
+          </div>
+          <div class="resource">
+            <div class="resource-value" id="energyValue">0</div>
+            <div class="resource-name">에너지</div>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 20px;">
+          <button id="addResourcesBtn" disabled>자원 추가</button>
+          <button id="addPlayerBtn" disabled>플레이어 추가</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>이벤트 로그</h2>
+        <div class="events" id="events">
+          <p>이벤트가 여기에 표시됩니다.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>상태 벡터</h2>
+        <pre id="vectorClock" style="background-color: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto;">
+{}</pre>
+        <button id="syncBtn" disabled>상태 동기화</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/eventsync-client.js"></script>
+  <script>
+    // 전역 상태
+    let client = null;
+    let gameState = null;
+
+    // DOM 요소
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const createGameBtn = document.getElementById('createGameBtn');
+    const addResourcesBtn = document.getElementById('addResourcesBtn');
+    const addPlayerBtn = document.getElementById('addPlayerBtn');
+    const syncBtn = document.getElementById('syncBtn');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const eventsContainer = document.getElementById('events');
+    const vectorClockDisplay = document.getElementById('vectorClock');
+    const gameInfo = document.getElementById('gameInfo');
+    const resourcesContainer = document.getElementById('resources');
+
+    // 연결 상태 업데이트
+    function updateConnectionStatus(status, message) {
+      connectionStatus.className = `status ${status}`;
+      connectionStatus.textContent = message || status;
+      
+      const isConnected = status === 'online';
+      connectBtn.disabled = isConnected;
+      disconnectBtn.disabled = !isConnected;
+      syncBtn.disabled = !isConnected;
+      addResourcesBtn.disabled = !isConnected || !gameState;
+      addPlayerBtn.disabled = !isConnected || !gameState;
+    }
+
+    // 게임 상태 업데이트
+    function updateGameState(game) {
+      gameState = game;
+      
+      if (!game) {
+        gameInfo.innerHTML = '<p>연결 후 게임 정보가 표시됩니다.</p>';
+        resourcesContainer.style.display = 'none';
+        return;
+      }
+
+      gameInfo.innerHTML = `
+        <h3>${game.name || '이름 없는 게임'}</h3>
+        <p>ID: ${game.id}</p>
+        <p>버전: ${game.version}</p>
+        <p>마지막 업데이트: ${new Date(game.lastUpdated).toLocaleString()}</p>
+        <p>플레이어: ${Object.keys(game.players || {}).length}명</p>
+      `;
+
+      // 자원 업데이트
+      if (game.resources) {
+        document.getElementById('goldValue').textContent = game.resources.gold || 0;
+        document.getElementById('woodValue').textContent = game.resources.wood || 0;
+        document.getElementById('stoneValue').textContent = game.resources.stone || 0;
+        document.getElementById('foodValue').textContent = game.resources.food || 0;
+        document.getElementById('energyValue').textContent = game.resources.energy || 0;
+        resourcesContainer.style.display = 'grid';
+      }
+
+      addResourcesBtn.disabled = false;
+      addPlayerBtn.disabled = false;
+    }
+
+    // 이벤트 추가
+    function addEvent(event) {
+      const eventElement = document.createElement('div');
+      eventElement.className = `event ${event.operation || 'info'}`;
+      
+      const timestamp = new Date(event.timestamp).toLocaleTimeString();
+      const clientId = event.clientId || 'system';
+      
+      eventElement.innerHTML = `
+        <div class="event-header">
+          <span>${timestamp}</span>
+          <span>${clientId}</span>
+        </div>
+        <div class="event-content">
+          <strong>${event.operation || 'INFO'}</strong>: 
+          ${JSON.stringify(event.diff || event).slice(0, 100)}...
+        </div>
+      `;
+      
+      eventsContainer.insertBefore(eventElement, eventsContainer.firstChild);
+      
+      // 최대 50개 이벤트만 유지
+      if (eventsContainer.children.length > 50) {
+        eventsContainer.removeChild(eventsContainer.lastChild);
+      }
+    }
+
+    // 벡터 시계 업데이트
+    function updateVectorClock(vectorClock) {
+      vectorClockDisplay.textContent = JSON.stringify(vectorClock, null, 2);
+    }
+
+    // 연결 버튼 클릭 핸들러
+    connectBtn.addEventListener('click', () => {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const documentId = document.getElementById('documentId').value;
+      const transport = document.getElementById('transport').value;
+      
+      if (!serverUrl || !documentId) {
+        alert('서버 URL과 문서 ID를 입력하세요.');
+        return;
+      }
+      
+      // 기존 클라이언트 정리
+      if (client) {
+        client.disconnect();
+        client = null;
+      }
+      
+      // 새 클라이언트 생성
+      client = new EventSyncClient({
+        serverUrl,
+        documentId,
+        transport,
+        onConnect: () => {
+          updateConnectionStatus('online', '온라인');
+          addEvent({
+            operation: 'connect',
+            timestamp: new Date().toISOString(),
+            clientId: client.options.clientId
+          });
+          
+          // 게임 정보 로드
+          fetchGameInfo(documentId);
+        },
+        onDisconnect: () => {
+          updateConnectionStatus('offline', '오프라인');
+          addEvent({
+            operation: 'disconnect',
+            timestamp: new Date().toISOString(),
+            clientId: client.options.clientId
+          });
+        },
+        onEvent: (event) => {
+          addEvent(event);
+          
+          // 게임 상태 업데이트가 필요한 경우
+          if (event.operation === 'update' && gameState && event.documentId === gameState.id) {
+            fetchGameInfo(documentId);
+          }
+          
+          // 벡터 시계 업데이트
+          updateVectorClock(client.vectorClock);
+        },
+        onError: (error) => {
+          console.error('EventSync 오류:', error);
+          addEvent({
+            operation: 'error',
+            timestamp: new Date().toISOString(),
+            clientId: client.options.clientId,
+            error: error.message
+          });
+        }
+      });
+      
+      updateConnectionStatus('connecting', '연결 중...');
+      client.connect();
+    });
+
+    // 연결 해제 버튼 클릭 핸들러
+    disconnectBtn.addEventListener('click', () => {
+      if (client) {
+        client.disconnect();
+        client = null;
+      }
+      updateConnectionStatus('offline', '오프라인');
+      updateGameState(null);
+    });
+
+    // 게임 생성 버튼 클릭 핸들러
+    createGameBtn.addEventListener('click', async () => {
+      const gameName = prompt('게임 이름을 입력하세요:', '새 게임');
+      if (!gameName) return;
+      
+      try {
+        const response = await fetch('/api/games', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: gameName,
+            players: {},
+            resources: {
+              gold: 1000,
+              wood: 500,
+              stone: 300,
+              food: 800,
+              energy: 100
+            }
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP 오류: ${response.status}`);
+        }
+        
+        const game = await response.json();
+        alert(`게임이 생성되었습니다. ID: ${game.id}`);
+        document.getElementById('documentId').value = game.id;
+      } catch (error) {
+        console.error('게임 생성 오류:', error);
+        alert(`게임 생성 실패: ${error.message}`);
+      }
+    });
+
+    // 자원 추가 버튼 클릭 핸들러
+    addResourcesBtn.addEventListener('click', async () => {
+      if (!gameState) return;
+      
+      try {
+        const response = await fetch(`/api/games/${gameState.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            resources: {
+              gold: gameState.resources.gold + 100,
+              wood: gameState.resources.wood + 50,
+              stone: gameState.resources.stone + 30,
+              food: gameState.resources.food + 80,
+              energy: gameState.resources.energy + 10
+            }
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP 오류: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        updateGameState(result.game);
+      } catch (error) {
+        console.error('자원 추가 오류:', error);
+        alert(`자원 추가 실패: ${error.message}`);
+      }
+    });
+
+    // 플레이어 추가 버튼 클릭 핸들러
+    addPlayerBtn.addEventListener('click', async () => {
+      if (!gameState) return;
+      
+      const playerName = prompt('플레이어 이름을 입력하세요:');
+      if (!playerName) return;
+      
+      const playerId = `player-${Date.now()}`;
+      const players = { ...gameState.players };
+      
+      players[playerId] = {
+        id: playerId,
+        name: playerName,
+        level: 1,
+        joinedAt: new Date().toISOString()
+      };
+      
+      try {
+        const response = await fetch(`/api/games/${gameState.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            players
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP 오류: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        updateGameState(result.game);
+      } catch (error) {
+        console.error('플레이어 추가 오류:', error);
+        alert(`플레이어 추가 실패: ${error.message}`);
+      }
+    });
+
+    // 동기화 버튼 클릭 핸들러
+    syncBtn.addEventListener('click', () => {
+      if (client) {
+        client._syncState();
+        addEvent({
+          operation: 'sync',
+          timestamp: new Date().toISOString(),
+          clientId: client.options.clientId
+        });
+      }
+    });
+
+    // 게임 정보 가져오기
+    async function fetchGameInfo(gameId) {
+      try {
+        const response = await fetch(`/api/games/${gameId}`);
+        if (!response.ok) {
+          if (response.status === 404) {
+            updateGameState(null);
+            return;
+          }
+          throw new Error(`HTTP 오류: ${response.status}`);
+        }
+        
+        const game = await response.json();
+        updateGameState(game);
+      } catch (error) {
+        console.error('게임 정보 로드 오류:', error);
+      }
+    }
+
+    // 초기 상태 설정
+    updateConnectionStatus('offline', '오프라인');
+    updateVectorClock({});
+  </script>
+</body>
+</html>
