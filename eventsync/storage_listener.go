@@ -5,30 +5,28 @@ import (
 	"fmt"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
-
-	"nodestorage/v2"
 )
 
-// StorageListener 구조체는 nodestorage 이벤트를 수신하고 처리합니다.
-type StorageListener[T any] struct {
-	storage     nodestorage.Storage[T]
+// StorageListener 구조체는 스토리지 이벤트를 수신하고 처리합니다.
+type StorageListener struct {
+	eventSource EventSource
 	syncService SyncService
 	logger      *zap.Logger
 	ctx         context.Context
 	cancel      context.CancelFunc
-	watchCh     <-chan nodestorage.WatchEvent[T]
+	watchCh     <-chan StorageEvent
 	wg          sync.WaitGroup
+
+	// 이벤트 중복 처리 방지를 위한 필드
+	processedEvents sync.Map // 처리된 이벤트 ID를 저장하는 맵
 }
 
 // NewStorageListener는 새로운 스토리지 리스너를 생성합니다.
-func NewStorageListener[T any](storage nodestorage.Storage[T], syncService SyncService, logger *zap.Logger) *StorageListener[T] {
+func NewStorageListener(eventSource EventSource, syncService SyncService, logger *zap.Logger) *StorageListener {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &StorageListener[T]{
-		storage:     storage,
+	return &StorageListener{
+		eventSource: eventSource,
 		syncService: syncService,
 		logger:      logger,
 		ctx:         ctx,
@@ -37,16 +35,11 @@ func NewStorageListener[T any](storage nodestorage.Storage[T], syncService SyncS
 }
 
 // Start는 스토리지 리스너를 시작합니다.
-func (l *StorageListener[T]) Start() error {
-	// 변경 감시 시작
-	pipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.D{{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}}}}},
-	}
-	opts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
-
-	watchCh, err := l.storage.Watch(l.ctx, pipeline, opts)
+func (l *StorageListener) Start() error {
+	// 이벤트 소스에서 이벤트 채널 가져오기
+	watchCh, err := l.eventSource.Watch(l.ctx)
 	if err != nil {
-		return fmt.Errorf("failed to watch storage: %w", err)
+		return fmt.Errorf("failed to watch event source: %w", err)
 	}
 
 	l.watchCh = watchCh
@@ -60,7 +53,7 @@ func (l *StorageListener[T]) Start() error {
 }
 
 // processEvents는 스토리지 이벤트를 처리합니다.
-func (l *StorageListener[T]) processEvents() {
+func (l *StorageListener) processEvents() {
 	defer l.wg.Done()
 
 	for {
@@ -85,21 +78,44 @@ func (l *StorageListener[T]) processEvents() {
 }
 
 // handleEvent는 스토리지 이벤트를 처리합니다.
-func (l *StorageListener[T]) handleEvent(event nodestorage.WatchEvent[T]) error {
-	// 이벤트를 any 타입으로 변환
-	anyEvent := nodestorage.WatchEvent[any]{
+func (l *StorageListener) handleEvent(event StorageEvent) error {
+	// 이벤트 중복 처리 방지
+	// 이벤트 고유 식별자 생성 (문서 ID + 작업 + 버전)
+	version := event.Version
+
+	// 이벤트 식별자 생성
+	eventKey := fmt.Sprintf("%s:%s:%d", event.ID.Hex(), event.Operation, version)
+
+	// 이미 처리된 이벤트인지 확인
+	if _, loaded := l.processedEvents.LoadOrStore(eventKey, true); loaded {
+		l.logger.Debug("Skipping duplicate event",
+			zap.String("document_id", event.ID.Hex()),
+			zap.String("operation", event.Operation),
+			zap.Int64("version", version),
+			zap.String("event_key", eventKey))
+		return nil
+	}
+
+	l.logger.Debug("Processing event",
+		zap.String("document_id", event.ID.Hex()),
+		zap.String("operation", event.Operation),
+		zap.Int64("version", version),
+		zap.String("event_key", eventKey))
+
+	// 동기화 서비스에 이벤트 전달
+	// StorageEventData 인터페이스를 구현하는 CustomEvent 구조체 생성
+	customEvent := &CustomEvent{
 		ID:        event.ID,
 		Operation: event.Operation,
 		Data:      event.Data,
 		Diff:      event.Diff,
 	}
 
-	// 동기화 서비스에 이벤트 전달
-	return l.syncService.HandleStorageEvent(l.ctx, anyEvent)
+	return l.syncService.HandleStorageEvent(l.ctx, customEvent)
 }
 
 // Stop은 스토리지 리스너를 중지합니다.
-func (l *StorageListener[T]) Stop() {
+func (l *StorageListener) Stop() {
 	l.cancel()
 	l.wg.Wait()
 	l.logger.Info("Storage listener stopped")

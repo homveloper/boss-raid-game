@@ -128,8 +128,19 @@ func (m *MongoStateVectorManager) UpdateStateVector(ctx context.Context, stateVe
 		"document_id": stateVector.DocumentID,
 	}
 
+	// _id 필드를 제외한 필드만 업데이트
 	update := bson.M{
-		"$set": stateVector,
+		"$set": bson.M{
+			"vector_clock": stateVector.VectorClock,
+			"last_updated": stateVector.LastUpdated,
+		},
+	}
+
+	// 새로운 문서 삽입 시 사용할 데이터
+	if opts.Upsert != nil && *opts.Upsert {
+		update["$setOnInsert"] = bson.M{
+			"_id": stateVector.ID,
+		}
 	}
 
 	_, err := m.collection.UpdateOne(ctx, filter, update, opts)
@@ -146,10 +157,7 @@ func (m *MongoStateVectorManager) UpdateStateVector(ctx context.Context, stateVe
 
 // UpdateVectorClock는 클라이언트의 벡터 시계를 업데이트합니다.
 func (m *MongoStateVectorManager) UpdateVectorClock(ctx context.Context, clientID string, documentID primitive.ObjectID, vectorClock map[string]int64) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	// 현재 상태 벡터 조회
+	// 현재 상태 벡터 조회 (뮤텍스 없이)
 	stateVector, err := m.GetStateVector(ctx, clientID, documentID)
 	if err != nil {
 		return err
@@ -166,7 +174,7 @@ func (m *MongoStateVectorManager) UpdateVectorClock(ctx context.Context, clientI
 		}
 	}
 
-	// 상태 벡터 업데이트
+	// 상태 벡터 업데이트 (UpdateStateVector 내부에서 뮤텍스 잠금)
 	return m.UpdateStateVector(ctx, stateVector)
 }
 

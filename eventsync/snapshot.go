@@ -112,8 +112,13 @@ func (s *MongoSnapshotStore) CreateSnapshot(ctx context.Context, documentID prim
 }
 
 // GetLatestSnapshot은 문서의 최신 스냅샷을 조회합니다.
+// 버전이 가장 높은 스냅샷을 반환합니다.
 func (s *MongoSnapshotStore) GetLatestSnapshot(ctx context.Context, documentID primitive.ObjectID) (*Snapshot, error) {
-	opts := options.FindOne().SetSort(bson.D{{Key: "sequence_num", Value: -1}})
+	// 버전 기준으로 내림차순 정렬하여 최신 스냅샷 조회
+	opts := options.FindOne().SetSort(bson.D{
+		{Key: "version", Value: -1},
+		{Key: "created_at", Value: -1}, // 동일 버전이 있을 경우 최근에 생성된 것
+	})
 
 	var snapshot Snapshot
 	err := s.collection.FindOne(ctx, bson.M{"document_id": documentID}, opts).Decode(&snapshot)
@@ -123,6 +128,12 @@ func (s *MongoSnapshotStore) GetLatestSnapshot(ctx context.Context, documentID p
 		}
 		return nil, fmt.Errorf("failed to find snapshot: %w", err)
 	}
+
+	s.logger.Debug("Found latest snapshot",
+		zap.String("document_id", documentID.Hex()),
+		zap.String("snapshot_id", snapshot.ID.Hex()),
+		zap.Int64("version", snapshot.Version),
+		zap.Int64("sequence_num", snapshot.SequenceNum))
 
 	return &snapshot, nil
 }

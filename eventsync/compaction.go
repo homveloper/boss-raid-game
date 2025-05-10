@@ -112,10 +112,12 @@ func (c *MongoEventCompactor) CompactEvents(ctx context.Context, documentID prim
 		// 유지할 이벤트의 최소 시퀀스 번호 계산
 		keepSeq := latestSeq - c.options.KeepLatest
 		if keepSeq > 0 {
-			filter["sequence_num"] = bson.M{
-				"$lt": snapshot.SequenceNum,
-				"$lt": keepSeq,
+			// 스냅샷 시퀀스와 유지할 최소 시퀀스 중 더 작은 값 사용
+			minSeq := snapshot.SequenceNum
+			if keepSeq < minSeq {
+				minSeq = keepSeq
 			}
+			filter["sequence_num"] = bson.M{"$lt": minSeq}
 		}
 	}
 

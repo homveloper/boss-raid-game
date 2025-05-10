@@ -2,12 +2,52 @@
 
 EventSync는 nodestorage의 FindOneAndUpdate로 생성되는 diff를 활용하여 이벤트 소싱과 상태 벡터 기반의 클라이언트 실시간 동기화를 구현하는 패키지입니다.
 
+## 테스트 실행 방법
+
+EventSync 패키지는 실제 MongoDB 인스턴스를 사용하여 테스트합니다. 테스트를 실행하기 전에 MongoDB가 실행 중인지 확인하세요.
+
+### 테스트 환경 요구사항
+
+- MongoDB 인스턴스 (localhost:27017)
+- Go 테스트 환경
+
+### 테스트 실행 명령어
+
+```bash
+# 모든 테스트 실행
+go test ./eventsync/... -v
+
+# 특정 테스트 실행
+go test ./eventsync/... -run TestMongoEventStore_StoreEvent -v
+
+# 통합 테스트 실행
+go test ./eventsync/... -run TestStorageListener_Integration -v
+
+# 벤치마크 테스트 실행
+go test ./eventsync/... -bench=. -benchmem
+```
+
+### 테스트 구조
+
+1. **단위 테스트**
+   - `event_store_test.go`: 이벤트 저장소 테스트
+   - `snapshot_test.go`: 스냅샷 저장소 테스트
+   - `state_vector_test.go`: 상태 벡터 관리자 테스트
+   - `sync_service_test.go`: 동기화 서비스 테스트
+
+2. **통합 테스트**
+   - `integration_test.go`: nodestorage와 EventSync 통합 테스트
+
+### 테스트 데이터베이스
+
+테스트는 자동으로 고유한 테스트 데이터베이스를 생성하고 테스트 종료 후 삭제합니다. 테스트 데이터베이스 이름은 `eventsync_test_[timestamp]` 형식으로 생성됩니다.
+
 ## 주요 기능
 
 - MongoDB Change Stream을 활용한 실시간 변경 감지
 - 이벤트 소싱 패턴을 통한 변경 이력 관리
 - 상태 벡터 기반의 효율적인 동기화
-- WebSocket 및 SSE(Server-Sent Events) 지원
+- 전송 레이어 독립적 설계 (WebSocket, SSE, REST API 등 자유롭게 선택 가능)
 - 서버 권한 모델 (Server Authority Model) 구현
 - 상태 벡터 기반 클라이언트 동기화
 
@@ -23,11 +63,18 @@ graph TD
         C3[클라이언트 3]
     end
 
-    subgraph 서버
+    subgraph 애플리케이션 영역
         subgraph API 레이어
             API[API 엔드포인트]
         end
 
+        subgraph 애플리케이션 레이어
+            APP[애플리케이션 로직]
+            TRANS[전송 레이어 구현]
+        end
+    end
+
+    subgraph eventsync 영역
         subgraph 데이터 레이어
             NS[nodestorage]
             NS -->|FindOneAndUpdate| DIFF[Diff 생성]
@@ -38,28 +85,30 @@ graph TD
         subgraph 동기화 레이어
             SV[상태 벡터 관리자]
             SYNC[동기화 서비스]
-            ES -->|이벤트 구독| SYNC
+            ES -->|이벤트 알림| SYNC
             SV <-->|상태 벡터 조회/업데이트| SYNC
             SS -->|스냅샷 조회| SYNC
         end
-
-        subgraph 전송 레이어
-            WS[WebSocket 핸들러]
-            SSE[SSE 핸들러]
-        end
     end
 
-    API -->|데이터 수정 요청| NS
-    SYNC -->|이벤트 전송| WS
-    SYNC -->|이벤트 전송| SSE
-    WS -->|실시간 업데이트| C1
-    WS -->|실시간 업데이트| C2
-    SSE -->|실시간 업데이트| C3
-    C1 -->|상태 벡터 전송| WS
-    C2 -->|상태 벡터 전송| WS
-    C3 -->|상태 벡터 전송| SSE
-    WS -->|상태 벡터 전달| SYNC
-    SSE -->|상태 벡터 전달| SYNC
+    API -->|데이터 수정 요청| APP
+    APP -->|FindOneAndUpdate| NS
+
+    %% 애플리케이션과 eventsync 간 인터페이스
+    APP -->|GetMissingEvents| SYNC
+    APP -->|UpdateVectorClock| SYNC
+    APP -->|StoreEvent| SYNC
+    ES -.->|이벤트 구독/폴링| APP
+
+    %% 애플리케이션과 클라이언트 간 통신
+    APP -->|이벤트/스냅샷 전송| TRANS
+    TRANS -->|실시간 업데이트| C1
+    TRANS -->|실시간 업데이트| C2
+    TRANS -->|실시간 업데이트| C3
+    C1 -->|상태 벡터 전송| TRANS
+    C2 -->|상태 벡터 전송| TRANS
+    C3 -->|상태 벡터 전송| TRANS
+    TRANS -->|상태 벡터 전달| APP
 
     subgraph 영구 저장소
         MONGO[(MongoDB)]
@@ -69,6 +118,12 @@ graph TD
     ES <-->|이벤트 저장/조회| MONGO
     SS <-->|스냅샷 저장/조회| MONGO
     SV <-->|상태 벡터 저장/조회| MONGO
+
+    classDef appArea fill:#e6f7ff,stroke:#1890ff;
+    classDef eventsyncArea fill:#fff0f6,stroke:#eb2f96;
+
+    class API,APP,TRANS appArea;
+    class NS,DIFF,ES,SS,SV,SYNC eventsyncArea;
 ```
 
 ### 데이터 흐름 시퀀스 다이어그램
@@ -76,50 +131,79 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant Client as 클라이언트
-    participant API as API 엔드포인트
+    participant TRANS as 전송 레이어<br>(애플리케이션 구현)
+    participant APP as 애플리케이션
+
+    participant SYNC as 동기화 서비스<br>(eventsync)
+    participant SV as 상태 벡터 관리자<br>(eventsync)
+    participant ES as 이벤트 저장소<br>(eventsync)
+    participant SS as 스냅샷 저장소<br>(eventsync)
+
     participant NS as nodestorage
-    participant ES as 이벤트 저장소
-    participant SS as 스냅샷 저장소
-    participant SV as 상태 벡터 관리자
-    participant SYNC as 동기화 서비스
-    participant WS as WebSocket/SSE
     participant MongoDB as MongoDB
+
+    rect rgb(240, 248, 255)
+    Note right of TRANS: 애플리케이션 영역
+    end
+
+    rect rgb(255, 240, 245)
+    Note right of SS: eventsync 영역
+    end
 
     Note over Client,MongoDB: 1. 데이터 수정 흐름
 
-    Client->>API: 데이터 수정 요청
-    API->>NS: FindOneAndUpdate 호출
+    Client->>TRANS: 데이터 수정 요청
+    TRANS->>APP: 요청 전달
+    APP->>NS: FindOneAndUpdate 호출
     NS->>MongoDB: 낙관적 동시성 제어로 수정
     MongoDB-->>NS: 수정된 문서 반환
     NS->>NS: Diff 생성
-    NS-->>API: 수정된 문서와 Diff 반환
-    API-->>Client: 응답 반환
+    NS-->>APP: 수정된 문서와 Diff 반환
+    APP-->>TRANS: 응답 전달
+    TRANS-->>Client: 응답 반환
 
     Note over NS,ES: 2. 이벤트 생성 및 저장
 
     NS->>ES: Diff를 이벤트로 변환
     ES->>MongoDB: 이벤트 저장
 
-    Note over ES,SYNC: 3. 실시간 동기화
+    Note over ES,Client: 3. 실시간 동기화 (애플리케이션 구현)
 
     ES->>SYNC: 새 이벤트 알림
-    SYNC->>WS: 연결된 클라이언트에 이벤트 브로드캐스트
-    WS->>Client: 이벤트 전송
+
+    opt 애플리케이션이 이벤트 구독 구현
+        APP->>ES: 이벤트 구독/폴링
+        ES-->>APP: 새 이벤트 전달
+        APP->>TRANS: 이벤트 전송
+        TRANS->>Client: 이벤트 전송
+    end
 
     Note over Client,SV: 4. 클라이언트 재연결 시 동기화
 
-    Client->>WS: 연결 및 상태 벡터 전송
-    WS->>SYNC: 상태 벡터 전달
+    Client->>TRANS: 연결 및 상태 벡터 전송
+    TRANS->>APP: 상태 벡터 전달
+
+    rect rgb(240, 248, 255)
+    APP->>SYNC: GetMissingEvents 호출
     SYNC->>SV: 상태 벡터 기반 누락 이벤트 조회
     SV->>SS: 최신 스냅샷 조회
     SS-->>SV: 스냅샷 반환
     SV->>ES: 스냅샷 이후 이벤트 조회
     ES-->>SV: 이벤트 반환
     SV-->>SYNC: 스냅샷 + 누락 이벤트 반환
-    SYNC->>WS: 스냅샷 + 이벤트 전송
-    WS->>Client: 스냅샷 + 이벤트 전송
+    SYNC-->>APP: 스냅샷 + 누락 이벤트 반환
+    end
+
+    APP->>TRANS: 스냅샷 + 이벤트 전송
+    TRANS->>Client: 스냅샷 + 이벤트 전송
 
     Note over Client: 스냅샷 적용 후<br>이벤트 순차 적용
+
+    Note over APP,SYNC: 5. 상태 벡터 업데이트
+
+    APP->>SYNC: UpdateVectorClock 호출
+    SYNC->>SV: 벡터 시계 업데이트
+    SV->>MongoDB: 벡터 시계 저장
 ```
 
 ### 주요 컴포넌트 설명
@@ -164,13 +248,13 @@ sequenceDiagram
   - 이벤트 브로드캐스트
   - 상태 벡터 기반 동기화 처리
 
-#### 6. 전송 레이어 (WebSocket/SSE)
+#### 6. 애플리케이션 레이어
 
-- **역할**: 클라이언트와의 실시간 통신 채널 제공
+- **역할**: 애플리케이션 로직 및 전송 레이어 구현
 - **주요 기능**:
-  - WebSocket 또는 SSE 연결 관리
-  - 이벤트 전송
-  - 클라이언트 상태 벡터 수신
+  - 동기화 서비스와 통합
+  - 전송 방식 선택 및 구현 (WebSocket, SSE, REST API 등)
+  - 클라이언트 상태 관리
 
 ### 동작 원리
 
@@ -186,13 +270,16 @@ sequenceDiagram
 
 3. **실시간 동기화**:
    - 새 이벤트가 저장되면 동기화 서비스에 알림
-   - 동기화 서비스는 연결된 모든 클라이언트에 이벤트 브로드캐스트
+   - 애플리케이션은 동기화 서비스로부터 이벤트를 수신
+   - 애플리케이션은 선택한 전송 방식을 통해 클라이언트에 이벤트 전송
    - 클라이언트는 이벤트를 수신하여 로컬 상태 업데이트
 
 4. **클라이언트 재연결 시 동기화**:
    - 클라이언트가 연결 시 자신의 상태 벡터 전송
-   - 서버는 상태 벡터를 기반으로 누락된 이벤트 식별
-   - 최신 스냅샷과 누락된 이벤트를 클라이언트에 전송
+   - 애플리케이션은 동기화 서비스에 누락된 이벤트 요청
+   - 동기화 서비스는 상태 벡터를 기반으로 누락된 이벤트 식별
+   - 최신 스냅샷과 누락된 이벤트를 애플리케이션에 반환
+   - 애플리케이션은 선택한 전송 방식을 통해 클라이언트에 전송
    - 클라이언트는 스냅샷을 적용한 후 이벤트를 순차적으로 적용
 
 5. **최적화**:
@@ -208,6 +295,8 @@ sequenceDiagram
 - 클라이언트는 서버의 변경 사항을 수신만 함
 - 클라이언트는 상태 벡터를 통해 자신의 동기화 상태만 서버에 전달
 - 서버가 모든 데이터 일관성과 충돌 해결을 담당
+
+
 
 ## 이벤트 소싱과 상태 벡터
 

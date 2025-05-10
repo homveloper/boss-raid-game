@@ -169,34 +169,40 @@ func (s *MongoEventStore) GetLatestSequence(ctx context.Context, documentID prim
 
 // GetEventsByVectorClock는 상태 벡터를 기준으로 누락된 이벤트를 조회합니다.
 func (s *MongoEventStore) GetEventsByVectorClock(ctx context.Context, documentID primitive.ObjectID, vectorClock map[string]int64) ([]*Event, error) {
-	// 각 클라이언트별로 벡터 시계 이후의 이벤트 조회
-	var orConditions []bson.M
-	for clientID, seq := range vectorClock {
-		orConditions = append(orConditions, bson.M{
-			"client_id":    clientID,
-			"sequence_num": bson.M{"$gt": seq},
-		})
-	}
+	// 기본 필터: 문서 ID로 필터링
+	filter := bson.M{"document_id": documentID}
 
-	// 알려지지 않은 클라이언트의 이벤트도 포함
-	var knownClients []string
-	for clientID := range vectorClock {
-		knownClients = append(knownClients, clientID)
-	}
+	// 벡터 시계가 비어 있지 않은 경우에만 $or 조건 추가
+	if len(vectorClock) > 0 {
+		// 각 클라이언트별로 벡터 시계 이후의 이벤트 조회
+		var orConditions []bson.M
+		for clientID, seq := range vectorClock {
+			orConditions = append(orConditions, bson.M{
+				"client_id":    clientID,
+				"sequence_num": bson.M{"$gt": seq},
+			})
+		}
 
-	if len(knownClients) > 0 {
+		// 알려지지 않은 클라이언트의 이벤트도 포함
+		var knownClients []string
+		for clientID := range vectorClock {
+			knownClients = append(knownClients, clientID)
+		}
+
 		orConditions = append(orConditions, bson.M{
 			"client_id": bson.M{"$nin": knownClients},
 		})
+
+		// $or 조건 추가
+		filter["$or"] = orConditions
 	}
 
-	// 쿼리 구성
-	filter := bson.M{
-		"document_id": documentID,
-		"$or":         orConditions,
-	}
+	opts := options.Find().SetSort(bson.D{{Key: "sequence_num", Value: 1}})
 
-	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
+	s.logger.Debug("Finding events by vector clock",
+		zap.String("document_id", documentID.Hex()),
+		zap.Any("vector_clock", vectorClock),
+		zap.Any("filter", filter))
 
 	cursor, err := s.collection.Find(ctx, filter, opts)
 	if err != nil {
@@ -208,6 +214,10 @@ func (s *MongoEventStore) GetEventsByVectorClock(ctx context.Context, documentID
 	if err := cursor.All(ctx, &events); err != nil {
 		return nil, fmt.Errorf("failed to decode events: %w", err)
 	}
+
+	s.logger.Debug("Found events by vector clock",
+		zap.String("document_id", documentID.Hex()),
+		zap.Int("event_count", len(events)))
 
 	return events, nil
 }

@@ -321,7 +321,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		}
 
 		// Generate diff
-		diff, err := generateDiff(doc, updatedDoc)
+		diff, err := GenerateDiff(doc, updatedDoc)
 		if err != nil {
 			return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
@@ -609,8 +609,8 @@ func getDocumentID[T Cachable[T]](data T) (primitive.ObjectID, error) {
 	return primitive.NilObjectID, fmt.Errorf("invalid document: not a pointer or nil pointer")
 }
 
-// generateDiff generates a diff between two documents
-func generateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
+// GenerateDiff generates a diff between two documents
+func GenerateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
 
 	// Generate MongoDB BSON patch (original implementation)
 	bsonPatch, err := CreateBsonPatch(oldDoc, newDoc)
