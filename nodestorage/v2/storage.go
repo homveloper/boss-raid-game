@@ -110,6 +110,10 @@ type WatchEvent[T Cachable[T]] struct {
 	// Operation indicates the type of change: "create", "update", or "delete"
 	Operation string `json:"operation"`
 
+	// Version contains the version number of the document after the change.
+	// This is used for optimistic concurrency control and event synchronization.
+	Version int64 `json:"version"`
+
 	// Data contains the current state of the document after the change
 	// For delete operations, this may be nil or the last known state
 	Data T `json:"data"`
@@ -132,6 +136,10 @@ type Diff struct {
 	// HasChanges indicates whether there are any differences between the documents.
 	// If false, the documents are identical and no changes need to be applied.
 	HasChanges bool `json:"hasChanges"`
+
+	// Version contains the version number of the document after the change.
+	// This is used for optimistic concurrency control and event synchronization.
+	Version int64 `json:"version"`
 
 	// MergePatch contains a partial document according to RFC 7396 JSON Merge Patch specification.
 	// This is a simpler alternative to JSONPatch where the patch is just the parts of the

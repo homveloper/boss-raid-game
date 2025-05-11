@@ -349,39 +349,56 @@ async function getGame(id) {
 
 // Event source functions
 function connectToEventSource(gameId, playerId) {
-    if (state.eventSource) {
-        state.eventSource.close();
-    }
+    // SSE 클라이언트 연결
+    window.sseClient.connect(gameId, playerId);
 
-    const url = `/api/events?gameId=${gameId}&playerId=${playerId}`;
-    state.eventSource = new EventSource(url);
+    // 이벤트 리스너 등록
+    window.sseClient.on('connected', (data) => {
+        console.log('SSE connected:', data);
+        updateGameStatus('connected', 'Connected to server');
+        addEventToLog('system', 'Connected to server');
+    });
 
-    state.eventSource.onmessage = (event) => {
-        console.log('SSE event received:', event.data);
-        try {
-            const data = JSON.parse(event.data);
-            handleEvent(data);
-        } catch (error) {
-            console.error('Error parsing SSE event:', error);
-        }
-    };
+    window.sseClient.on('disconnected', (data) => {
+        console.log('SSE disconnected:', data);
+        updateGameStatus('disconnected', data.message);
+        addEventToLog('system', data.message);
+    });
 
-    state.eventSource.onerror = (error) => {
-        console.error('EventSource error:', error);
-        state.eventSource.close();
-        setTimeout(() => {
-            connectToEventSource(gameId, playerId);
-        }, 1000);
-    };
+    window.sseClient.on('reconnecting', (data) => {
+        console.log('SSE reconnecting:', data);
+        updateGameStatus('disconnected', `Connection lost. Reconnecting (${data.attempt}/${data.maxAttempts})...`);
+        addEventToLog('system', `Connection lost. Reconnecting (${data.attempt}/${data.maxAttempts})...`);
+    });
+
+    // 게임 이벤트 처리
+    window.sseClient.on('message', (data) => {
+        console.log('SSE message:', data);
+        handleEvent(data);
+    });
+
+    // 서버에서 보내는 이벤트 타입별 처리
+    const eventTypes = [
+        'connected', 'heartbeat', 'game_state', 'game_update', 'player_join',
+        'player_ready', 'player_attack', 'boss_attack', 'player_defeated',
+        'game_start', 'game_end', 'item_equip', 'crafting_started',
+        'crafting_helped', 'crafting_completed', 'crafting_update'
+    ];
+
+    eventTypes.forEach(eventType => {
+        window.sseClient.on(eventType, (data) => {
+            console.log(`SSE ${eventType} event:`, data);
+            handleEvent({ type: eventType, payload: data });
+        });
+    });
 
     console.log(`Connected to SSE for game ${gameId} as player ${playerId}`);
 }
 
 function disconnectFromEventSource() {
-    if (state.eventSource) {
-        state.eventSource.close();
-        state.eventSource = null;
-    }
+    // SSE 클라이언트 연결 종료
+    window.sseClient.disconnect();
+
     stopAutoAttack();
     stopBossActionTimer();
 }

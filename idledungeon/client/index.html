@@ -1,55 +1,62 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IdleDungeon</title>
-  <link rel="stylesheet" href="css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>아이들 던전 (IdleDungeon)</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>IdleDungeon</h1>
-      <div class="connection-status">
-        <span id="connectionStatus" class="status offline">오프라인</span>
-        <div class="connection-controls">
-          <button id="connectBtn">연결</button>
-          <button id="disconnectBtn" disabled>연결 해제</button>
+    <div id="game-container">
+        <div id="ui-container">
+            <div id="connection-panel" class="panel">
+                <h2>연결</h2>
+                <button id="connect-btn">연결</button>
+                <div id="connection-status">연결 상태: 연결 안됨</div>
+            </div>
+            
+            <div id="game-panel" class="panel hidden">
+                <h2>게임</h2>
+                <div id="game-list-container">
+                    <h3>게임 목록</h3>
+                    <div id="game-list"></div>
+                    <button id="create-game-btn">새 게임 생성</button>
+                    <div id="create-game-form" class="hidden">
+                        <input type="text" id="game-name-input" placeholder="게임 이름">
+                        <button id="submit-game-btn">생성</button>
+                        <button id="cancel-game-btn">취소</button>
+                    </div>
+                </div>
+                
+                <div id="join-game-container" class="hidden">
+                    <h3>게임 참가</h3>
+                    <div id="selected-game-info"></div>
+                    <input type="text" id="player-name-input" placeholder="플레이어 이름">
+                    <button id="join-game-btn">참가</button>
+                    <button id="back-to-list-btn">뒤로</button>
+                </div>
+            </div>
+            
+            <div id="player-panel" class="panel hidden">
+                <h2>플레이어 정보</h2>
+                <div id="player-info"></div>
+                <div id="player-stats"></div>
+            </div>
         </div>
-      </div>
-    </header>
-
-    <main>
-      <div class="game-container">
-        <div class="game-controls">
-          <button id="createGameBtn">새 게임 생성</button>
-          <button id="joinGameBtn">게임 참가</button>
-          <div class="game-info">
-            <span>게임 ID: <span id="gameIdDisplay">없음</span></span>
-            <span>플레이어 ID: <span id="playerIdDisplay">없음</span></span>
-          </div>
+        
+        <div id="game-view-container" class="hidden">
+            <canvas id="game-canvas"></canvas>
+            <div id="game-controls">
+                <div id="zoom-controls">
+                    <button id="zoom-in-btn">+</button>
+                    <button id="zoom-out-btn">-</button>
+                </div>
+            </div>
         </div>
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-      </div>
-
-      <div class="sidebar">
-        <div class="card">
-          <h2>게임 상태</h2>
-          <div id="gameState">
-            <p>게임에 참가하세요.</p>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>이벤트 로그</h2>
-          <div id="eventLog" class="event-log"></div>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <script src="js/sync.js"></script>
-  <script src="js/game.js"></script>
-  <script src="js/app.js"></script>
+    </div>
+    
+    <script src="js/sync.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>

@@ -6,166 +6,224 @@ import (
 	"idledungeon/internal/model"
 	"idledungeon/internal/storage"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"tictactoe/pkg/utils"
+	"sync"
 	"time"
 
+	"eventsync"
+	"nodestorage/v2"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 )
 
-// Config represents the server configuration
-type Config struct {
-	Port       int    `json:"port"`
-	MongoURI   string `json:"mongoUri"`
-	DBName     string `json:"dbName"`
-	ClientPath string `json:"clientPath"`
+// GameServer represents the game server
+type GameServer struct {
+	ctx                context.Context
+	cancel             context.CancelFunc
+	gameStorage        *storage.GameStorage
+	syncService        eventsync.SyncService
+	eventStore         eventsync.EventStore
+	stateVectorManager eventsync.StateVectorManager
+	storageListener    *eventsync.StorageListener
+	sseHandler         *SSEHandler
+	httpServer         *http.Server
+	clientDir          string
+	logger             *zap.Logger
+	updateTicker       *time.Ticker
+	updateMutex        sync.Mutex
+	games              map[primitive.ObjectID]*model.Game
+	gamesMutex         sync.RWMutex
 }
 
-// DefaultConfig returns the default server configuration
-func DefaultConfig() Config {
-	return Config{
-		Port:       8080,
-		MongoURI:   "mongodb://localhost:27017",
-		DBName:     "idledungeon",
-		ClientPath: "./client",
-	}
-}
+// NewGameServer creates a new game server
+func NewGameServer(ctx context.Context, mongoClient *mongo.Client, dbName, clientDir string, logger *zap.Logger) (*GameServer, error) {
+	// Create context with cancel
+	serverCtx, cancel := context.WithCancel(ctx)
 
-// Server represents the game server
-type Server struct {
-	config     Config
-	storage    *storage.GameStorage
-	router     *http.ServeMux
-	server     *http.Server
-	logger     *zap.Logger
-	ctx        context.Context
-	cancel     context.CancelFunc
-	sseManager *SSEManager
-}
-
-// NewServer creates a new game server
-func NewServer(config Config, logger *zap.Logger) (*Server, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Create storage
-	gameStorage, err := storage.NewGameStorage(ctx, config.MongoURI, config.DBName, logger)
+	// Create game storage
+	gameStorage, err := storage.NewGameStorage(serverCtx, mongoClient, dbName, logger)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create game storage: %w", err)
 	}
 
-	// Create router
-	router := http.NewServeMux()
-
-	// Create SSE manager
-	sseManager := NewSSEManager(logger)
-
-	// Create server
-	server := &Server{
-		config:     config,
-		storage:    gameStorage,
-		router:     router,
-		logger:     logger,
-		ctx:        ctx,
-		cancel:     cancel,
-		sseManager: sseManager,
+	// Create event store
+	eventStore, err := eventsync.NewMongoEventStore(serverCtx, mongoClient, dbName, "events", logger)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create event store: %w", err)
 	}
 
-	// 로그 추가
-	logger.Debug("Server created",
-		zap.String("mongoURI", config.MongoURI),
-		zap.String("dbName", config.DBName),
-		zap.Int("port", config.Port),
-		zap.String("clientPath", config.ClientPath),
-	)
+	// Create state vector manager
+	stateVectorManager, err := eventsync.NewMongoStateVectorManager(serverCtx, mongoClient, dbName, "state_vectors", eventStore, logger)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create state vector manager: %w", err)
+	}
 
-	// Set up routes
-	server.setupRoutes()
+	// Create sync service
+	syncService := eventsync.NewSyncService(eventStore, stateVectorManager, logger)
+
+	// Create SSE handler
+	sseHandler := NewSSEHandler(syncService, logger)
+
+	// Create server
+	server := &GameServer{
+		ctx:                serverCtx,
+		cancel:             cancel,
+		gameStorage:        gameStorage,
+		syncService:        syncService,
+		eventStore:         eventStore,
+		stateVectorManager: stateVectorManager,
+		sseHandler:         sseHandler,
+		clientDir:          clientDir,
+		logger:             logger,
+		games:              make(map[primitive.ObjectID]*model.Game),
+	}
+
+	// Create storage adapter
+	storageAdapter := eventsync.NewStorageAdapter[*model.Game](gameStorage.GetStorage(), logger)
+
+	// Create storage listener
+	storageListener := eventsync.NewStorageListener(storageAdapter, syncService, logger)
+	server.storageListener = storageListener
 
 	return server, nil
 }
 
-// setupRoutes sets up the HTTP routes
-func (s *Server) setupRoutes() {
-	// 로그 추가
-	s.logger.Debug("Setting up routes")
+// Start starts the game server
+func (s *GameServer) Start(port int) error {
+	// Start storage listener
+	if err := s.storageListener.Start(); err != nil {
+		return fmt.Errorf("failed to start storage listener: %w", err)
+	}
 
-	// Serve static files
-	s.logger.Debug("Serving static files from", zap.String("path", s.config.ClientPath))
-	s.router.Handle("/", http.FileServer(http.Dir(s.config.ClientPath)))
+	// Create router
+	router := http.NewServeMux()
 
-	// API routes
-	s.logger.Debug("Setting up API routes")
-	s.router.HandleFunc("/api/games", s.handleGames)
-	s.router.HandleFunc("/api/games/", s.handleGame)
-	s.router.HandleFunc("/api/players", s.handlePlayers)
-	s.router.HandleFunc("/api/players/", s.handlePlayer)
-	s.router.HandleFunc("/api/sync", s.handleSync)
+	// API 라우터 생성 (미들웨어 적용)
+	apiRouter := http.NewServeMux()
+	apiRouter.HandleFunc("/api/games", s.handleGetGames)
+	apiRouter.HandleFunc("/api/games/get", s.handleGetGame)
+	apiRouter.HandleFunc("/api/games/create", s.handleCreateGame)
+	apiRouter.HandleFunc("/api/games/join", s.handleJoinGame)
+	apiRouter.HandleFunc("/api/games/move", s.handleMovePlayer)
+	apiRouter.HandleFunc("/api/games/attack", s.handleAttackMonster)
 
-	// SSE route
-	s.logger.Debug("Setting up SSE route")
-	s.router.HandleFunc("/events", s.handleSSE)
+	// API 라우터에 미들웨어 적용
+	apiHandler := LoggingMiddleware(s.logger, apiRouter)
+	apiHandler = RecoveryMiddleware(s.logger, apiHandler)
 
-	s.logger.Debug("Routes setup complete")
-}
+	// 메인 라우터에 API 핸들러 등록
+	router.Handle("/api/games", apiHandler)
+	router.Handle("/api/games/get", apiHandler)
+	router.Handle("/api/games/create", apiHandler)
+	router.Handle("/api/games/join", apiHandler)
+	router.Handle("/api/games/move", apiHandler)
+	router.Handle("/api/games/attack", apiHandler)
 
-// Start starts the server
-func (s *Server) Start() error {
-	// 미들웨어 적용
-	handler := MiddlewareChain(s.router,
-		func(h http.Handler) http.Handler { return LoggingMiddleware(s.logger, h) },
-		func(h http.Handler) http.Handler { return utils.ErrorHandlerMiddleware(s.logger, h) },
-		utils.RequestIDMiddleware,
-		CORSMiddleware,
-	)
+	// Register SSE handler (미들웨어 적용 없이)
+	router.Handle("/api/events", s.sseHandler)
+
+	// Register static file handler
+	fs := http.FileServer(http.Dir(s.clientDir))
+	router.Handle("/", fs)
 
 	// Create HTTP server
-	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.config.Port),
-		Handler: handler,
+	s.httpServer = &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: router,
 	}
 
-	// Start server in a goroutine
-	go func() {
-		s.logger.Info("Starting server", zap.Int("port", s.config.Port))
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Fatal("Server error", zap.Error(err))
+	// Start game update ticker (200ms 간격으로 업데이트)
+	s.updateTicker = time.NewTicker(200 * time.Millisecond)
+	go s.runGameUpdates()
+
+	// Start HTTP server
+	s.logger.Info("Starting game server", zap.Int("port", port))
+	return s.httpServer.ListenAndServe()
+}
+
+// Stop stops the game server
+func (s *GameServer) Stop() error {
+	// Stop update ticker
+	if s.updateTicker != nil {
+		s.updateTicker.Stop()
+	}
+
+	// Stop HTTP server
+	if s.httpServer != nil {
+		if err := s.httpServer.Shutdown(s.ctx); err != nil {
+			return fmt.Errorf("failed to shutdown HTTP server: %w", err)
 		}
-	}()
-
-	// Wait for interrupt signal
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-
-	// Shutdown server
-	s.logger.Info("Shutting down server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.server.Shutdown(ctx); err != nil {
-		s.logger.Error("Server shutdown error", zap.Error(err))
-		return err
 	}
 
-	// Close storage
-	if err := s.storage.Close(); err != nil {
-		s.logger.Error("Storage close error", zap.Error(err))
-		return err
+	// Stop storage listener
+	if s.storageListener != nil {
+		s.storageListener.Stop()
 	}
 
-	s.logger.Info("Server stopped")
-	return nil
-}
+	// Close game storage
+	if s.gameStorage != nil {
+		if err := s.gameStorage.Close(); err != nil {
+			return fmt.Errorf("failed to close game storage: %w", err)
+		}
+	}
 
-// Stop stops the server
-func (s *Server) Stop() error {
+	// Cancel context
 	s.cancel()
+
 	return nil
 }
 
-// GetWorldConfig returns the world configuration
-func (s *Server) GetWorldConfig() model.WorldConfig {
-	return model.DefaultWorldConfig()
+// runGameUpdates runs the game update loop
+func (s *GameServer) runGameUpdates() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.updateTicker.C:
+			s.updateGames()
+		}
+	}
+}
+
+// updateGames updates all active games
+func (s *GameServer) updateGames() {
+	s.updateMutex.Lock()
+	defer s.updateMutex.Unlock()
+
+	// Get all games
+	s.gamesMutex.RLock()
+	gameIDs := make([]primitive.ObjectID, 0, len(s.games))
+	for id := range s.games {
+		gameIDs = append(gameIDs, id)
+	}
+	s.gamesMutex.RUnlock()
+
+	// Update each game
+	for _, id := range gameIDs {
+		// Update game
+		_, _, err := s.gameStorage.UpdateGame(s.ctx, id, func(game *model.Game) (*model.Game, error) {
+			// Only update games in playing state
+			if game.State == model.GameStatePlaying {
+				game.UpdateGame()
+			}
+			return game, nil
+		})
+		if err != nil {
+			s.logger.Error("Failed to update game", zap.String("game_id", id.Hex()), zap.Error(err))
+		}
+	}
+}
+
+// GetStorage returns the game storage
+func (s *GameServer) GetStorage() nodestorage.Storage[*model.Game] {
+	return s.gameStorage.GetStorage()
+}
+
+// GetAllGames gets all games
+func (s *GameServer) GetAllGames(ctx context.Context) ([]*model.Game, error) {
+	return s.gameStorage.GetAllGames(ctx)
 }

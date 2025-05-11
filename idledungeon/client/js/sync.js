@@ -1,190 +1,130 @@
 /**
- * IdleDungeon Sync Client
- * Handles synchronization with the server using SSE
+ * EventSyncClient handles synchronization with the server using Server-Sent Events (SSE)
  */
-class SyncClient {
-  /**
-   * Create a new sync client
-   * @param {Object} options - Client options
-   * @param {string} options.serverUrl - Server URL
-   * @param {string} options.clientId - Client ID
-   * @param {string} options.gameId - Game ID
-   * @param {Function} options.onConnect - Connect callback
-   * @param {Function} options.onDisconnect - Disconnect callback
-   * @param {Function} options.onEvent - Event callback
-   * @param {Function} options.onError - Error callback
-   */
-  constructor(options) {
-    this.options = {
-      serverUrl: 'http://localhost:8080',
-      clientId: null,
-      gameId: null,
-      onConnect: null,
-      onDisconnect: null,
-      onEvent: null,
-      onError: null,
-      ...options
-    };
-
-    this.connected = false;
-    this.eventSource = null;
-    this.vectorClock = {};
-  }
-
-  /**
-   * Connect to the server
-   * @param {string} gameId - Game ID
-   * @returns {Promise<void>}
-   */
-  async connect(gameId) {
-    if (this.connected) {
-      return;
+class EventSyncClient {
+    /**
+     * Create a new EventSyncClient
+     * @param {Object} options - Configuration options
+     * @param {string} options.serverUrl - Server URL
+     * @param {string} options.clientId - Client ID (optional, will be generated if not provided)
+     * @param {Function} options.onConnect - Callback when connected
+     * @param {Function} options.onDisconnect - Callback when disconnected
+     * @param {Function} options.onEvent - Callback when an event is received
+     * @param {Function} options.onError - Callback when an error occurs
+     */
+    constructor(options) {
+        this.serverUrl = options.serverUrl || '';
+        this.clientId = options.clientId || this.generateClientId();
+        this.onConnect = options.onConnect || (() => {});
+        this.onDisconnect = options.onDisconnect || (() => {});
+        this.onEvent = options.onEvent || (() => {});
+        this.onError = options.onError || (() => {});
+        
+        this.eventSource = null;
+        this.connected = false;
+        this.documentId = null;
+        this.vectorClock = {};
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.reconnectDelay = 1000; // 1 second
     }
-
-    // Update game ID
-    if (gameId) {
-      this.options.gameId = gameId;
-    }
-
-    // Validate client ID and game ID
-    if (!this.options.clientId) {
-      throw new Error('Client ID is required');
-    }
-
-    // Create SSE URL
-    const url = new URL(`${this.options.serverUrl}/events`);
-    url.searchParams.append('clientId', this.options.clientId);
-    if (this.options.gameId) {
-      url.searchParams.append('gameId', this.options.gameId);
-    }
-
-    // Create event source
-    this.eventSource = new EventSource(url.toString());
-
-    // Set up event handlers
-    this.eventSource.onopen = () => {
-      this.connected = true;
-      if (this.options.onConnect) {
-        this.options.onConnect();
-      }
-      this._syncState();
-    };
-
-    this.eventSource.onerror = (error) => {
-      console.error('SSE error:', error);
-      if (this.options.onError) {
-        this.options.onError(error);
-      }
-      this.disconnect();
-    };
-
-    this.eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        this._handleEvent(data);
-      } catch (error) {
-        console.error('Failed to parse SSE event:', error);
-        if (this.options.onError) {
-          this.options.onError(error);
+    
+    /**
+     * Connect to the server
+     * @param {string} documentId - Document ID to subscribe to
+     */
+    connect(documentId) {
+        if (this.connected) {
+            this.disconnect();
         }
-      }
-    };
-  }
-
-  /**
-   * Disconnect from the server
-   */
-  disconnect() {
-    if (!this.connected) {
-      return;
+        
+        this.documentId = documentId;
+        
+        // Create event source URL
+        const url = `${this.serverUrl}/api/events?clientId=${this.clientId}&documentId=${this.documentId}`;
+        
+        // Create event source
+        this.eventSource = new EventSource(url);
+        
+        // Set up event handlers
+        this.eventSource.addEventListener('connected', (event) => {
+            this.connected = true;
+            this.reconnectAttempts = 0;
+            console.log('Connected to server', event.data);
+            this.onConnect(JSON.parse(event.data));
+        });
+        
+        this.eventSource.addEventListener('update', (event) => {
+            const eventData = JSON.parse(event.data);
+            console.log('Received event', eventData);
+            
+            // Update vector clock
+            if (eventData.clientId && eventData.sequenceNum) {
+                this.vectorClock[eventData.clientId] = eventData.sequenceNum;
+            }
+            
+            // Call event handler
+            this.onEvent(eventData);
+        });
+        
+        this.eventSource.onerror = (error) => {
+            console.error('SSE error', error);
+            this.onError(error);
+            
+            // Handle reconnection
+            if (this.connected) {
+                this.connected = false;
+                this.onDisconnect();
+            }
+            
+            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                this.reconnectAttempts++;
+                const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+                console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+                
+                setTimeout(() => {
+                    this.connect(this.documentId);
+                }, delay);
+            }
+        };
     }
-
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
+    
+    /**
+     * Disconnect from the server
+     */
+    disconnect() {
+        if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+        }
+        
+        if (this.connected) {
+            this.connected = false;
+            this.onDisconnect();
+        }
     }
-
-    this.connected = false;
-    if (this.options.onDisconnect) {
-      this.options.onDisconnect();
+    
+    /**
+     * Generate a random client ID
+     * @returns {string} Random client ID
+     */
+    generateClientId() {
+        return 'client-' + Math.random().toString(36).substring(2, 15);
     }
-  }
-
-  /**
-   * Sync state with the server
-   * @private
-   */
-  _syncState() {
-    if (!this.connected || !this.options.gameId) {
-      return;
+    
+    /**
+     * Get the current vector clock
+     * @returns {Object} Vector clock
+     */
+    getVectorClock() {
+        return { ...this.vectorClock };
     }
-
-    // Send sync request
-    fetch(`${this.options.serverUrl}/api/sync`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        clientId: this.options.clientId,
-        documentId: this.options.gameId,
-        vectorClock: this.vectorClock
-      })
-    }).catch(error => {
-      console.error('Failed to sync state:', error);
-      if (this.options.onError) {
-        this.options.onError(error);
-      }
-    });
-  }
-
-  /**
-   * Handle an event from the server
-   * @param {Object} event - Event data
-   * @private
-   */
-  _handleEvent(event) {
-    // Update vector clock
-    if (event.data && event.data.vectorClock) {
-      for (const [key, value] of Object.entries(event.data.vectorClock)) {
-        this.vectorClock[key] = Math.max(this.vectorClock[key] || 0, value);
-      }
+    
+    /**
+     * Check if connected to the server
+     * @returns {boolean} True if connected
+     */
+    isConnected() {
+        return this.connected;
     }
-
-    // Call event handler
-    if (this.options.onEvent) {
-      this.options.onEvent(event);
-    }
-  }
-
-  /**
-   * Update a unit in the game
-   * @param {string} unitId - Unit ID
-   * @param {string} action - Action to perform
-   * @param {Object} data - Action data
-   * @returns {Promise<Object>} - Updated game state
-   */
-  async updateUnit(unitId, action, data = {}) {
-    if (!this.connected || !this.options.gameId) {
-      throw new Error('Not connected to a game');
-    }
-
-    const response = await fetch(`${this.options.serverUrl}/api/games/${this.options.gameId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        unitId,
-        action,
-        ...data
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to update unit: ${response.statusText}`);
-    }
-
-    return response.json();
-  }
 }

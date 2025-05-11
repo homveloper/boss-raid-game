@@ -19,18 +19,21 @@ type StorageListener struct {
 	wg          sync.WaitGroup
 
 	// 이벤트 중복 처리 방지를 위한 필드
-	processedEvents sync.Map // 처리된 이벤트 ID를 저장하는 맵
+	processedEvents     sync.Map // 처리된 이벤트 ID를 저장하는 맵
+	processedEventsMu   sync.Mutex
+	lastProcessedEvents map[string]int64 // 문서별 마지막으로 처리된 이벤트 버전
 }
 
 // NewStorageListener는 새로운 스토리지 리스너를 생성합니다.
 func NewStorageListener(eventSource EventSource, syncService SyncService, logger *zap.Logger) *StorageListener {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &StorageListener{
-		eventSource: eventSource,
-		syncService: syncService,
-		logger:      logger,
-		ctx:         ctx,
-		cancel:      cancel,
+		eventSource:         eventSource,
+		syncService:         syncService,
+		logger:              logger,
+		ctx:                 ctx,
+		cancel:              cancel,
+		lastProcessedEvents: make(map[string]int64),
 	}
 }
 

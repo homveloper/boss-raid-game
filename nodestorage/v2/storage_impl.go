@@ -321,7 +321,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		}
 
 		// Generate diff
-		diff, err := GenerateDiff(doc, updatedDoc)
+		diff, err := GenerateDiff(doc, updatedDoc, newVersion)
 		if err != nil {
 			return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
@@ -610,7 +610,7 @@ func getDocumentID[T Cachable[T]](data T) (primitive.ObjectID, error) {
 }
 
 // GenerateDiff generates a diff between two documents
-func GenerateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
+func GenerateDiff[T Cachable[T]](oldDoc, newDoc T, newVersion int64) (*Diff, error) {
 
 	// Generate MongoDB BSON patch (original implementation)
 	bsonPatch, err := CreateBsonPatch(oldDoc, newDoc)
@@ -647,6 +647,7 @@ func GenerateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
 	// Create diff object with all patch formats
 	return &Diff{
 		HasChanges: !bsonPatch.IsEmpty(),
+		Version:    newVersion,
 		MergePatch: mergePatch,
 		BsonPatch:  bsonPatch,
 	}, nil
@@ -931,10 +932,13 @@ func (s *StorageImpl[T]) UpdateOneWithPipeline(
 
 		// Create match stage for ID and version
 		matchStage := bson.D{
-			{Key: "$match", Value: bson.M{
-				"_id":          id,
-				versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
-			}},
+			{
+				Key: "$match",
+				Value: bson.M{
+					"_id":          id,
+					versionBSONTag: currentVersion, // Use BSON tag name for MongoDB query
+				},
+			},
 		}
 
 		// Add version increment stage
