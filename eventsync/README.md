@@ -77,8 +77,9 @@ graph TD
     subgraph eventsync 영역
         subgraph 데이터 레이어
             NS[nodestorage]
+            ESS[EventSyncStorage]
             NS -->|FindOneAndUpdate| DIFF[Diff 생성]
-            DIFF -->|이벤트 변환| ES[이벤트 저장소]
+            ESS -->|Diff 캡처 및 변환| ES[이벤트 저장소]
             ES -->|스냅샷 생성| SS[스냅샷 저장소]
         end
 
@@ -92,7 +93,8 @@ graph TD
     end
 
     API -->|데이터 수정 요청| APP
-    APP -->|FindOneAndUpdate| NS
+    APP -->|FindOneAndUpdate| ESS
+    ESS -->|내부적으로 사용| NS
 
     %% 애플리케이션과 eventsync 간 인터페이스
     APP -->|GetMissingEvents| SYNC
@@ -121,9 +123,11 @@ graph TD
 
     classDef appArea fill:#e6f7ff,stroke:#1890ff;
     classDef eventsyncArea fill:#fff0f6,stroke:#eb2f96;
+    classDef newComponent fill:#f0fff0,stroke:#52c41a;
 
     class API,APP,TRANS appArea;
     class NS,DIFF,ES,SS,SV,SYNC eventsyncArea;
+    class ESS newComponent;
 ```
 
 ### 데이터 흐름 시퀀스 다이어그램
@@ -139,6 +143,7 @@ sequenceDiagram
     participant ES as 이벤트 저장소<br>(eventsync)
     participant SS as 스냅샷 저장소<br>(eventsync)
 
+    participant ESS as EventSyncStorage<br>(eventsync)
     participant NS as nodestorage
     participant MongoDB as MongoDB
 
@@ -150,22 +155,29 @@ sequenceDiagram
     Note right of SS: eventsync 영역
     end
 
+    rect rgb(240, 255, 240)
+    Note right of ESS: 새로운 컴포넌트
+    end
+
     Note over Client,MongoDB: 1. 데이터 수정 흐름
 
     Client->>TRANS: 데이터 수정 요청
     TRANS->>APP: 요청 전달
-    APP->>NS: FindOneAndUpdate 호출
+    APP->>ESS: FindOneAndUpdate 호출
+    ESS->>NS: 내부적으로 nodestorage 호출
     NS->>MongoDB: 낙관적 동시성 제어로 수정
     MongoDB-->>NS: 수정된 문서 반환
     NS->>NS: Diff 생성
-    NS-->>APP: 수정된 문서와 Diff 반환
+    NS-->>ESS: 수정된 문서와 Diff 반환
+
+    Note over ESS,ES: 2. 이벤트 생성 및 저장 (자동화)
+
+    ESS->>ES: Diff를 이벤트로 변환하여 저장
+    ES->>MongoDB: 이벤트 저장
+
+    ESS-->>APP: 수정된 문서와 Diff 반환
     APP-->>TRANS: 응답 전달
     TRANS-->>Client: 응답 반환
-
-    Note over NS,ES: 2. 이벤트 생성 및 저장
-
-    NS->>ES: Diff를 이벤트로 변환
-    ES->>MongoDB: 이벤트 저장
 
     Note over ES,Client: 3. 실시간 동기화 (애플리케이션 구현)
 
@@ -208,7 +220,16 @@ sequenceDiagram
 
 ### 주요 컴포넌트 설명
 
-#### 1. nodestorage
+#### 1. EventSyncStorage
+
+- **역할**: nodestorage와 이벤트 저장소 간의 연결 역할
+- **주요 기능**:
+  - nodestorage.Storage 인터페이스 구현으로 기존 코드와 호환성 유지
+  - nodestorage의 FindOneAndUpdate 호출 시 생성된 Diff를 자동으로 이벤트로 변환하여 저장
+  - 낙관적 동시성 제어 기능 제공
+  - 이벤트 저장소와의 통합을 통한 실시간 동기화 지원
+
+#### 2. nodestorage
 
 - **역할**: 낙관적 동시성 제어를 통한 데이터 수정 및 Diff 생성
 - **주요 기능**:
@@ -216,15 +237,15 @@ sequenceDiagram
   - 버전 필드를 사용한 낙관적 동시성 제어
   - MongoDB를 영구 저장소로 사용
 
-#### 2. 이벤트 저장소 (EventStore)
+#### 3. 이벤트 저장소 (EventStore)
 
-- **역할**: nodestorage에서 생성된 Diff를 이벤트로 변환하여 저장
+- **역할**: EventSyncStorage에서 캡처한 Diff를 이벤트로 변환하여 저장
 - **주요 기능**:
   - 이벤트 저장 및 조회
   - 시퀀스 번호 관리
   - 이벤트 압축 및 만료 처리
 
-#### 3. 스냅샷 저장소 (SnapshotStore)
+#### 4. 스냅샷 저장소 (SnapshotStore)
 
 - **역할**: 특정 시점의 문서 상태를 스냅샷으로 저장
 - **주요 기능**:
@@ -232,7 +253,7 @@ sequenceDiagram
   - 스냅샷 조회 및 관리
   - 오래된 스냅샷 정리
 
-#### 4. 상태 벡터 관리자 (StateVectorManager)
+#### 5. 상태 벡터 관리자 (StateVectorManager)
 
 - **역할**: 클라이언트별 상태 벡터 관리
 - **주요 기능**:
@@ -240,7 +261,7 @@ sequenceDiagram
   - 상태 벡터 기반 누락 이벤트 식별
   - 클라이언트 동기화 상태 추적
 
-#### 5. 동기화 서비스 (SyncService)
+#### 6. 동기화 서비스 (SyncService)
 
 - **역할**: 클라이언트와 서버 간 데이터 동기화 관리
 - **주요 기능**:
@@ -248,7 +269,7 @@ sequenceDiagram
   - 이벤트 브로드캐스트
   - 상태 벡터 기반 동기화 처리
 
-#### 6. 애플리케이션 레이어
+#### 7. 애플리케이션 레이어
 
 - **역할**: 애플리케이션 로직 및 전송 레이어 구현
 - **주요 기능**:
@@ -260,13 +281,15 @@ sequenceDiagram
 
 1. **데이터 수정 및 Diff 생성**:
    - 클라이언트가 API를 통해 데이터 수정 요청
-   - nodestorage가 FindOneAndUpdate를 사용하여 데이터 수정
-   - 수정 과정에서 변경 전후 상태를 비교하여 Diff 생성
+   - 애플리케이션이 EventSyncStorage의 FindOneAndUpdate를 호출
+   - EventSyncStorage가 내부적으로 nodestorage를 사용하여 데이터 수정
+   - nodestorage가 변경 전후 상태를 비교하여 Diff 생성
 
-2. **이벤트 저장**:
-   - nodestorage에서 생성된 Diff를 이벤트로 변환
-   - 이벤트에 시퀀스 번호, 타임스탬프 등 메타데이터 추가
+2. **이벤트 자동 저장**:
+   - EventSyncStorage가 nodestorage에서 생성된 Diff를 자동으로 캡처
+   - Diff를 이벤트로 변환하고 시퀀스 번호, 타임스탬프 등 메타데이터 추가
    - 이벤트를 MongoDB의 events 컬렉션에 저장
+   - 애플리케이션 코드 수정 없이 이벤트 저장 자동화
 
 3. **실시간 동기화**:
    - 새 이벤트가 저장되면 동기화 서비스에 알림
@@ -296,6 +319,115 @@ sequenceDiagram
 - 클라이언트는 상태 벡터를 통해 자신의 동기화 상태만 서버에 전달
 - 서버가 모든 데이터 일관성과 충돌 해결을 담당
 
+## EventSyncStorage 구현 방식
+
+EventSyncStorage는 nodestorage와 eventsync를 효과적으로 통합하기 위한 핵심 컴포넌트입니다. 이 컴포넌트는 다음과 같은 방식으로 구현됩니다:
+
+### 1. 인터페이스 호환성
+
+```go
+// EventSyncStorage는 nodestorage.Storage 인터페이스를 구현하여 기존 코드와의 호환성을 유지합니다.
+type EventSyncStorage[T nodestorage.Cachable[T]] struct {
+    storage    nodestorage.Storage[T]  // 내부적으로 실제 nodestorage 인스턴스 사용
+    eventStore eventsync.EventStore    // 이벤트 저장소
+    logger     *zap.Logger
+}
+
+// nodestorage.Storage 인터페이스의 모든 메서드 구현
+func (s *EventSyncStorage[T]) FindOne(ctx context.Context, id primitive.ObjectID, opts ...*options.FindOneOptions) (T, error) {
+    return s.storage.FindOne(ctx, id, opts...)
+}
+
+// 다른 메서드들도 동일하게 구현...
+```
+
+### 2. Diff 자동 캡처 및 이벤트 저장
+
+```go
+// FindOneAndUpdate는 nodestorage의 동일 메서드를 호출하고 생성된 Diff를 이벤트로 저장합니다.
+func (s *EventSyncStorage[T]) FindOneAndUpdate(ctx context.Context, id primitive.ObjectID, updateFn nodestorage.EditFunc[T], opts ...nodestorage.EditOption) (T, *nodestorage.Diff, error) {
+    // 1. nodestorage의 FindOneAndUpdate 호출
+    updatedDoc, diff, err := s.storage.FindOneAndUpdate(ctx, id, updateFn, opts...)
+
+    // 2. 에러가 없고 변경사항이 있는 경우에만 이벤트 저장
+    if err == nil && diff != nil && diff.HasChanges {
+        // 3. Diff를 이벤트로 변환
+        event := &eventsync.Event{
+            ID:          primitive.NewObjectID(),
+            DocumentID:  id,
+            Timestamp:   time.Now(),
+            Operation:   "update",
+            Diff:        diff,
+            ClientID:    "server",
+            VectorClock: map[string]int64{"server": 1},
+        }
+
+        // 4. 이벤트 저장
+        if storeErr := s.eventStore.StoreEvent(ctx, event); storeErr != nil {
+            // 이벤트 저장 실패 로깅 (하지만 원래 작업은 성공했으므로 에러 반환하지 않음)
+            s.logger.Error("Failed to store event",
+                zap.String("document_id", id.Hex()),
+                zap.Error(storeErr))
+        }
+    }
+
+    return updatedDoc, diff, err
+}
+```
+
+### 3. 다른 작업에 대한 이벤트 처리
+
+```go
+// DeleteOne은 문서 삭제 시 이벤트를 생성합니다.
+func (s *EventSyncStorage[T]) DeleteOne(ctx context.Context, id primitive.ObjectID) error {
+    // 1. 삭제 전 문서 조회 (이벤트에 포함시키기 위함)
+    doc, err := s.storage.FindOne(ctx, id)
+
+    // 2. 실제 삭제 수행
+    err = s.storage.DeleteOne(ctx, id)
+    if err != nil {
+        return err
+    }
+
+    // 3. 삭제 이벤트 생성 및 저장
+    event := &eventsync.Event{
+        ID:          primitive.NewObjectID(),
+        DocumentID:  id,
+        Timestamp:   time.Now(),
+        Operation:   "delete",
+        ClientID:    "server",
+        VectorClock: map[string]int64{"server": 1},
+        Metadata:    map[string]interface{}{"deleted_doc": doc},
+    }
+
+    if storeErr := s.eventStore.StoreEvent(ctx, event); storeErr != nil {
+        s.logger.Error("Failed to store delete event",
+            zap.String("document_id", id.Hex()),
+            zap.Error(storeErr))
+    }
+
+    return nil
+}
+```
+
+### 4. 생성자 함수
+
+```go
+// NewEventSyncStorage는 새로운 EventSyncStorage 인스턴스를 생성합니다.
+func NewEventSyncStorage[T nodestorage.Cachable[T]](
+    storage nodestorage.Storage[T],
+    eventStore eventsync.EventStore,
+    logger *zap.Logger,
+) *EventSyncStorage[T] {
+    return &EventSyncStorage[T]{
+        storage:    storage,
+        eventStore: eventStore,
+        logger:     logger,
+    }
+}
+```
+
+이 구현 방식을 통해 애플리케이션 코드를 최소한으로 수정하면서 nodestorage와 eventsync를 효과적으로 통합할 수 있습니다. 기존에 nodestorage.Storage를 사용하던 코드는 EventSyncStorage로 대체하기만 하면 자동으로 이벤트 저장 기능이 활성화됩니다.
 
 
 ## 이벤트 소싱과 상태 벡터
@@ -313,7 +445,7 @@ sequenceDiagram
 
 #### nodestorage와 이벤트 소싱:
 
-nodestorage의 FindOneAndUpdate는 문서 변경 시 diff를 생성합니다. 이 diff는 이벤트 소싱의 이벤트로 변환되어 저장됩니다. 각 이벤트는 다음 정보를 포함합니다:
+nodestorage의 FindOneAndUpdate는 문서 변경 시 diff를 생성합니다. EventSyncStorage는 이 diff를 자동으로 캡처하여 이벤트 소싱의 이벤트로 변환하고 저장합니다. 각 이벤트는 다음 정보를 포함합니다:
 
 - 문서 ID
 - 타임스탬프
@@ -321,6 +453,8 @@ nodestorage의 FindOneAndUpdate는 문서 변경 시 diff를 생성합니다. �
 - 작업 유형 (생성, 업데이트, 삭제)
 - 변경 내용 (diff)
 - 벡터 시계
+
+이 자동화된 프로세스는 애플리케이션 코드를 수정하지 않고도 이벤트 소싱 패턴을 구현할 수 있게 해줍니다. EventSyncStorage는 nodestorage.Storage 인터페이스를 구현하므로 기존 코드와의 호환성을 유지하면서 이벤트 소싱의 이점을 제공합니다.
 
 ### 상태 벡터 (State Vector)
 
@@ -358,10 +492,11 @@ nodestorage의 FindOneAndUpdate는 문서 변경 시 diff를 생성합니다. �
 
 EventSync에서는 이벤트 소싱과 상태 벡터를 결합하여 강력한 실시간 동기화 시스템을 구현합니다:
 
-1. **이벤트 저장**: nodestorage의 diff를 이벤트로 변환하여 저장
-2. **상태 벡터 관리**: 각 클라이언트의 상태 벡터를 추적
-3. **효율적인 동기화**: 클라이언트의 상태 벡터를 기반으로 필요한 이벤트만 전송
-4. **실시간 업데이트**: MongoDB Change Stream을 통해 변경 사항을 실시간으로 감지하고 전파
+1. **자동화된 이벤트 저장**: EventSyncStorage가 nodestorage의 diff를 자동으로 캡처하여 이벤트로 변환하고 저장
+2. **상태 벡터 관리**: 각 클라이언트의 상태 벡터를 추적하여 동기화 상태 관리
+3. **효율적인 동기화**: 클라이언트의 상태 벡터를 기반으로 필요한 이벤트만 선택적으로 전송
+4. **실시간 업데이트**: 이벤트 저장소와 동기화 서비스를 통해 변경 사항을 실시간으로 클라이언트에 전파
+5. **일관된 인터페이스**: nodestorage.Storage 인터페이스와 호환되는 EventSyncStorage를 통해 기존 코드 재사용
 
 ### 동기화 시나리오 예제
 
