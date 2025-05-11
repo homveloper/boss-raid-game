@@ -1,0 +1,179 @@
+// handleDeleteGame handles DELETE /api/games/{id}
+func (s *Server) handleDeleteGame(w http.ResponseWriter, r *http.Request, id primitive.ObjectID) {
+	// In a real application, we would delete the game from the database
+	// For this demo, we'll just return a simple response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Game deleted"})
+}
+
+// handlePlayers handles the /api/players endpoint
+func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleCreatePlayer(w, r)
+	default:
+		r = utils.WithErrorAndCodeAndMessage(r, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed, "Method not allowed")
+		utils.WriteError(w, r)
+	}
+}
+
+// handlePlayer handles the /api/players/{id} endpoint
+func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
+	// Extract player ID from URL
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/players/")
+	if idStr == "" {
+		r = utils.WithErrorAndCodeAndMessage(r, fmt.Errorf("player ID is required"), http.StatusBadRequest, "Player ID is required")
+		utils.WriteError(w, r)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetPlayer(w, r, idStr)
+	case http.MethodPut:
+		s.handleUpdatePlayer(w, r, idStr)
+	default:
+		r = utils.WithErrorAndCodeAndMessage(r, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed, "Method not allowed")
+		utils.WriteError(w, r)
+	}
+}
+
+// handleCreatePlayer handles POST /api/players
+func (s *Server) handleCreatePlayer(w http.ResponseWriter, r *http.Request) {
+	// Parse request body
+	var req struct {
+		GameID string `json:"gameId"`
+		Name   string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		r = utils.WithErrorAndCodeAndMessage(r, err, http.StatusBadRequest, "Invalid request body")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Parse game ID
+	gameID, err := primitive.ObjectIDFromHex(req.GameID)
+	if err != nil {
+		r = utils.WithErrorAndCodeAndMessage(r, err, http.StatusBadRequest, "Invalid game ID")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Generate player ID
+	playerID := model.GenerateUUID()
+
+	// Update game
+	game, err := s.storage.UpdateGame(r.Context(), gameID, func(g *model.GameState) (*model.GameState, error) {
+		// Create player
+		x, y := model.GenerateRandomPosition(s.GetWorldConfig().Width, s.GetWorldConfig().Height)
+		player := model.NewPlayer(playerID, req.Name, x, y)
+
+		// Add player to game
+		g.AddUnit(player)
+		g.LastUpdated = player.UpdatedAt
+		g.Version++
+
+		return g, nil
+	})
+	if err != nil {
+		s.logger.Error("Failed to create player", zap.Error(err), zap.String("gameId", req.GameID))
+		r = utils.WithErrorAndCodeAndMessage(r, err, http.StatusInternalServerError, "Failed to create player")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Get player
+	player, exists := game.GetUnit(playerID)
+	if !exists {
+		s.logger.Error("Player not found after creation", zap.String("playerId", playerID))
+		r = utils.WithErrorAndCodeAndMessage(r, fmt.Errorf("player not found after creation"), http.StatusInternalServerError, "Failed to create player")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// 플레이어 생성 이벤트 브로드캐스트
+	go func() {
+		// 게임 ID를 문자열로 변환
+		gameIDStr := gameID.Hex()
+		
+		// 플레이어 생성 이벤트 브로드캐스트
+		s.logger.Debug("Broadcasting player creation",
+			zap.String("gameId", gameIDStr),
+			zap.String("playerId", playerID),
+			zap.String("playerName", req.Name),
+		)
+		
+		// 게임에 참여 중인 모든 클라이언트에게 이벤트 전송
+		s.sseManager.BroadcastEventToGame(gameIDStr, "player_joined", map[string]interface{}{
+			"game": game,
+			"player": player,
+		})
+	}()
+
+	// Return response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(player)
+}
+
+// handleGetPlayer handles GET /api/players/{id}
+func (s *Server) handleGetPlayer(w http.ResponseWriter, r *http.Request, id string) {
+	// In a real application, we would query the database for the player
+	// For this demo, we'll just return a simple response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Get player endpoint", "id": id})
+}
+
+// handleUpdatePlayer handles PUT /api/players/{id}
+func (s *Server) handleUpdatePlayer(w http.ResponseWriter, r *http.Request, id string) {
+	// In a real application, we would update the player in the database
+	// For this demo, we'll just return a simple response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Player updated", "id": id})
+}
+
+// handleSync handles the /api/sync endpoint
+func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		r = utils.WithErrorAndCodeAndMessage(r, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed, "Method not allowed")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		ClientID    string           `json:"clientId"`
+		DocumentID  string           `json:"documentId"`
+		VectorClock map[string]int64 `json:"vectorClock"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		r = utils.WithErrorAndCodeAndMessage(r, err, http.StatusBadRequest, "Invalid request body")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Parse document ID
+	docID, err := primitive.ObjectIDFromHex(req.DocumentID)
+	if err != nil {
+		r = utils.WithErrorAndCodeAndMessage(r, err, http.StatusBadRequest, "Invalid document ID")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Update vector clock
+	syncService := s.storage.GetSyncService()
+	if err := syncService.UpdateVectorClock(r.Context(), req.ClientID, docID, req.VectorClock); err != nil {
+		s.logger.Error("Failed to update vector clock", zap.Error(err))
+		r = utils.WithErrorAndCodeAndMessage(r, err, http.StatusInternalServerError, "Failed to update vector clock")
+		utils.WriteError(w, r)
+		return
+	}
+
+	// Return response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Vector clock updated"})
+}

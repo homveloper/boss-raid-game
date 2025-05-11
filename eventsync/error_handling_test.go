@@ -41,19 +41,23 @@ func (m *MockErrorEventSource) Close() error {
 
 // MockErrorSyncService는 에러를 반환하는 SyncService 모의 구현체입니다.
 type MockErrorSyncService struct {
-	handleError       error
-	getMissingError   error
-	updateVectorError error
-	storeEventError   error
+	handleError           error
+	getMissingError       error
+	updateVectorError     error
+	storeEventError       error
+	registerClientError   error
+	unregisterClientError error
 }
 
 // NewMockErrorSyncService는 새로운 MockErrorSyncService를 생성합니다.
 func NewMockErrorSyncService(handleError, getMissingError, updateVectorError, storeEventError error) *MockErrorSyncService {
 	return &MockErrorSyncService{
-		handleError:       handleError,
-		getMissingError:   getMissingError,
-		updateVectorError: updateVectorError,
-		storeEventError:   storeEventError,
+		handleError:           handleError,
+		getMissingError:       getMissingError,
+		updateVectorError:     updateVectorError,
+		storeEventError:       storeEventError,
+		registerClientError:   nil,
+		unregisterClientError: nil,
 	}
 }
 
@@ -85,6 +89,16 @@ func (m *MockErrorSyncService) StoreEvent(ctx context.Context, event *Event) err
 	return m.storeEventError
 }
 
+// RegisterClient는 설정된 에러를 반환합니다.
+func (m *MockErrorSyncService) RegisterClient(ctx context.Context, clientID string) error {
+	return m.registerClientError
+}
+
+// UnregisterClient는 설정된 에러를 반환합니다.
+func (m *MockErrorSyncService) UnregisterClient(ctx context.Context, clientID string) error {
+	return m.unregisterClientError
+}
+
 func TestStorageListener_ErrorHandling(t *testing.T) {
 	// 테스트 설정
 	logger := zap.NewExample()
@@ -105,7 +119,7 @@ func TestStorageListener_ErrorHandling(t *testing.T) {
 		// 리스너 시작 시 에러가 발생해야 함
 		err := listener.Start()
 		assert.Error(t, err, "Watch 에러가 발생하면 Start 메서드가 에러를 반환해야 함")
-		assert.Equal(t, watchError, err, "반환된 에러가 Watch 에러와 동일해야 함")
+		assert.Contains(t, err.Error(), watchError.Error(), "반환된 에러에 Watch 에러 메시지가 포함되어야 함")
 	})
 
 	// HandleStorageEvent 에러 테스트

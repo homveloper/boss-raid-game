@@ -36,6 +36,12 @@ type StateVectorManager interface {
 	// GetMissingEvents는 클라이언트가 놓친 이벤트를 조회합니다.
 	GetMissingEvents(ctx context.Context, clientID string, documentID primitive.ObjectID, vectorClock map[string]int64) ([]*Event, error)
 
+	// RegisterClient는 새 클라이언트를 등록합니다.
+	RegisterClient(ctx context.Context, clientID string) error
+
+	// UnregisterClient는 클라이언트를 등록 해제합니다.
+	UnregisterClient(ctx context.Context, clientID string) error
+
 	// Close는 상태 벡터 관리자를 닫습니다.
 	Close() error
 }
@@ -82,26 +88,51 @@ func NewMongoStateVectorManager(ctx context.Context, client *mongo.Client, datab
 }
 
 // GetStateVector는 클라이언트의 상태 벡터를 조회합니다.
+// 상태 벡터가 없으면 새로 생성합니다. FindOneAndUpdate를 사용하여 원자적으로 처리합니다.
 func (m *MongoStateVectorManager) GetStateVector(ctx context.Context, clientID string, documentID primitive.ObjectID) (*StateVector, error) {
 	filter := bson.M{
 		"client_id":   clientID,
 		"document_id": documentID,
 	}
 
+	// 새 상태 벡터 생성 (없는 경우 사용)
+	now := time.Now()
+	newStateVector := StateVector{
+		ID:          primitive.NewObjectID(),
+		ClientID:    clientID,
+		DocumentID:  documentID,
+		VectorClock: make(map[string]int64),
+		LastUpdated: now,
+	}
+
+	// 업데이트 옵션 설정
+	opts := options.FindOneAndUpdate().
+		SetUpsert(true).                 // 문서가 없으면 새로 생성
+		SetReturnDocument(options.After) // 업데이트 후 문서 반환
+
+	// 업데이트 내용 정의
+	update := bson.M{
+		"$setOnInsert": bson.M{
+			"_id":          newStateVector.ID,
+			"client_id":    clientID,
+			"document_id":  documentID,
+			"vector_clock": newStateVector.VectorClock,
+			"last_updated": now,
+		},
+	}
+
+	// FindOneAndUpdate 실행
 	var stateVector StateVector
-	err := m.collection.FindOne(ctx, filter).Decode(&stateVector)
+	err := m.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&stateVector)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			// 상태 벡터가 없으면 새로 생성
-			stateVector = StateVector{
-				ClientID:    clientID,
-				DocumentID:  documentID,
-				VectorClock: make(map[string]int64),
-				LastUpdated: time.Now(),
-			}
-			return &stateVector, nil
-		}
-		return nil, fmt.Errorf("failed to find state vector: %w", err)
+		return nil, fmt.Errorf("failed to get or create state vector: %w", err)
+	}
+
+	// 새로 생성된 경우 로그 출력
+	if stateVector.LastUpdated.Equal(now) {
+		m.logger.Debug("New state vector created",
+			zap.String("client_id", clientID),
+			zap.String("document_id", documentID.Hex()))
 	}
 
 	return &stateVector, nil
@@ -204,6 +235,31 @@ func (m *MongoStateVectorManager) GetMissingEvents(ctx context.Context, clientID
 		zap.Int("event_count", len(events)))
 
 	return events, nil
+}
+
+// RegisterClient는 새 클라이언트를 등록합니다.
+func (m *MongoStateVectorManager) RegisterClient(ctx context.Context, clientID string) error {
+	// 클라이언트 등록 시 특별한 작업은 필요 없음
+	// 클라이언트가 문서에 접근할 때 자동으로 상태 벡터가 생성됨
+	m.logger.Info("Client registered", zap.String("client_id", clientID))
+	return nil
+}
+
+// UnregisterClient는 클라이언트를 등록 해제합니다.
+func (m *MongoStateVectorManager) UnregisterClient(ctx context.Context, clientID string) error {
+	// 클라이언트의 모든 상태 벡터 삭제
+	filter := bson.M{"client_id": clientID}
+
+	result, err := m.collection.DeleteMany(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to remove client state vectors: %w", err)
+	}
+
+	m.logger.Info("Client unregistered",
+		zap.String("client_id", clientID),
+		zap.Int64("removed_state_vectors", result.DeletedCount))
+
+	return nil
 }
 
 // Close는 상태 벡터 관리자를 닫습니다.

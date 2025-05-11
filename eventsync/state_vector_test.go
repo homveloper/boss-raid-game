@@ -43,7 +43,7 @@ func TestMongoStateVectorManager_GetStateVector(t *testing.T) {
 	assert.Equal(t, clientID, stateVector.ClientID)
 	assert.Equal(t, docID, stateVector.DocumentID)
 	assert.Empty(t, stateVector.VectorClock)
-	assert.True(t, stateVector.ID.IsZero()) // 아직 저장되지 않음
+	assert.False(t, stateVector.ID.IsZero()) // 이제 자동으로 저장됨
 
 	// 상태 벡터 저장
 	stateVector.VectorClock = map[string]int64{"server": 1}

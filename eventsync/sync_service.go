@@ -24,6 +24,12 @@ type SyncService interface {
 	// HandleStorageEvent는 nodestorage 이벤트를 처리합니다.
 	HandleStorageEvent(ctx context.Context, event StorageEventData) error
 
+	// RegisterClient는 새 클라이언트를 등록합니다.
+	RegisterClient(ctx context.Context, clientID string) error
+
+	// UnregisterClient는 클라이언트를 등록 해제합니다.
+	UnregisterClient(ctx context.Context, clientID string) error
+
 	// Close는 동기화 서비스를 닫습니다.
 	Close() error
 }
@@ -120,6 +126,28 @@ func (s *SyncServiceImpl) HandleStorageEvent(ctx context.Context, eventData Stor
 
 	// 이벤트 저장
 	return s.StoreEvent(ctx, event)
+}
+
+// RegisterClient는 새 클라이언트를 등록합니다.
+func (s *SyncServiceImpl) RegisterClient(ctx context.Context, clientID string) error {
+	// StateVectorManager에 클라이언트 등록 위임
+	if err := s.stateVectorManager.RegisterClient(ctx, clientID); err != nil {
+		return fmt.Errorf("failed to register client: %w", err)
+	}
+
+	s.logger.Info("Client registered", zap.String("client_id", clientID))
+	return nil
+}
+
+// UnregisterClient는 클라이언트를 등록 해제합니다.
+func (s *SyncServiceImpl) UnregisterClient(ctx context.Context, clientID string) error {
+	// StateVectorManager에 클라이언트 등록 해제 위임
+	if err := s.stateVectorManager.UnregisterClient(ctx, clientID); err != nil {
+		return fmt.Errorf("failed to unregister client: %w", err)
+	}
+
+	s.logger.Info("Client unregistered", zap.String("client_id", clientID))
+	return nil
 }
 
 // Close는 동기화 서비스를 닫습니다.

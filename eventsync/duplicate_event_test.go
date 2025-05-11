@@ -2,6 +2,8 @@ package eventsync
 
 import (
 	"context"
+	"nodestorage/v2"
+	"nodestorage/v2/cache"
 	"testing"
 	"time"
 
@@ -34,7 +36,17 @@ func TestStorageListener_DuplicateEventHandling(t *testing.T) {
 
 	// 스토리지 설정
 	collection := db.Collection("documents")
-	storage, err := setupStorage(t, collection)
+
+	// 캐시 설정
+	cacheStorage := cache.NewMemoryCache[*TestDocument](nil)
+
+	// nodestorage 설정
+	storageOptions := &nodestorage.Options{
+		VersionField:      "Version",
+		WatchEnabled:      true,
+		WatchFullDocument: "updateLookup",
+	}
+	storage, err := nodestorage.NewStorage[*TestDocument](ctx, collection, cacheStorage, storageOptions)
 	require.NoError(t, err)
 
 	// 스토리지 어댑터 설정

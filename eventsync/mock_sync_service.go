@@ -93,6 +93,16 @@ func (m *MockSyncService) GetEvents() []*Event {
 	return result
 }
 
+// RegisterClient는 새 클라이언트를 등록합니다.
+func (m *MockSyncService) RegisterClient(ctx context.Context, clientID string) error {
+	return nil
+}
+
+// UnregisterClient는 클라이언트를 등록 해제합니다.
+func (m *MockSyncService) UnregisterClient(ctx context.Context, clientID string) error {
+	return nil
+}
+
 // Close는 동기화 서비스를 닫습니다.
 func (m *MockSyncService) Close() error {
 	return nil
