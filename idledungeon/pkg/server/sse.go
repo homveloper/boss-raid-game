@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"idledungeon/pkg/utils"
 	"net/http"
 	"runtime/debug"
 	"sync"
@@ -52,7 +53,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// Get flusher
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		r := utils.WithErrorAndCodeAndMessage(r, fmt.Errorf("flusher not available"), http.StatusInternalServerError, "Flusher not available")
+		utils.WriteError(w, r)
 		return
 	}
 

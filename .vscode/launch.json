@@ -20,6 +20,19 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}"
+        },
+        {
+            "name" : "idledungeon-server",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/idledungeon/cmd/server/main.go",
+            "env": {
+                
+            },
+            "args": [
+                "--client=../../client"
+            ]
         }
     ]
 }
