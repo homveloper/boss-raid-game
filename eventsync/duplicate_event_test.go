@@ -62,12 +62,12 @@ func TestStorageListener_DuplicateEventHandling(t *testing.T) {
 
 	// 테스트 문서 생성
 	doc := &TestDocument{
-		Name:    "Test Document",
-		Value:   100,
-		Tags:    []string{"test", "duplicate"},
-		Created: time.Now(),
-		Updated: time.Now(),
-		Version: 1,
+		Name:      "Test Document",
+		Value:     100,
+		Tags:      []string{"test", "duplicate"},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Version:   1,
 	}
 
 	// 문서 저장

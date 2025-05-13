@@ -2,8 +2,8 @@ package eventsync
 
 import (
 	"context"
+	"eventsync/testutil"
 	"testing"
-	"tictactoe/eventsync/testutil"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -39,12 +39,12 @@ func TestMongoSnapshotStore_CreateSnapshot(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -117,12 +117,12 @@ func TestMongoSnapshotStore_GetLatestSnapshot(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -218,12 +218,12 @@ func TestMongoSnapshotStore_GetSnapshotBySequence(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -415,12 +415,12 @@ func TestGetEventsWithSnapshot(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -463,12 +463,12 @@ func TestGetEventsWithSnapshot(t *testing.T) {
 	for i := 10; i < 15; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()

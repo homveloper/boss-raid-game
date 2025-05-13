@@ -2,8 +2,8 @@ package eventsync
 
 import (
 	"context"
+	"eventsync/testutil"
 	"testing"
-	"tictactoe/eventsync/testutil"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -25,42 +25,6 @@ import (
 //	go test ./eventsync/... -loglevel=error
 func TestMain(m *testing.M) {
 	testutil.TestMainWithLogLevel(m)
-}
-
-// TestDocument는 테스트에 사용되는 문서 구조체입니다.
-type TestDocument struct {
-	ID      primitive.ObjectID `bson:"_id" json:"id"`
-	Name    string             `bson:"name" json:"name"`
-	Value   int                `bson:"value" json:"value"`
-	Tags    []string           `bson:"tags,omitempty" json:"tags,omitempty"`
-	Created time.Time          `bson:"created" json:"created"`
-	Updated time.Time          `bson:"updated" json:"updated"`
-	Version int64              `bson:"version" json:"version"`
-}
-
-// Copy는 TestDocument의 복사본을 반환합니다.
-func (d *TestDocument) Copy() *TestDocument {
-	if d == nil {
-		return nil
-	}
-
-	copy := &TestDocument{
-		ID:      d.ID,
-		Name:    d.Name,
-		Value:   d.Value,
-		Created: d.Created,
-		Updated: d.Updated,
-		Version: d.Version,
-	}
-
-	if d.Tags != nil {
-		copy.Tags = make([]string, len(d.Tags))
-		for i, tag := range d.Tags {
-			copy.Tags[i] = tag
-		}
-	}
-
-	return copy
 }
 
 // setupTestDB는 테스트용 MongoDB 데이터베이스를 설정합니다.
@@ -132,12 +96,12 @@ func TestMongoEventStore_StoreEvent(t *testing.T) {
 
 	// 이전 문서와 새 문서 생성
 	oldDoc := &TestDocument{
-		ID:      docID,
-		Name:    "",
-		Value:   0,
-		Created: time.Now(),
-		Updated: time.Now(),
-		Version: 0,
+		ID:        docID,
+		Name:      "",
+		Value:     0,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Version:   0,
 	}
 
 	newDoc := oldDoc.Copy()
@@ -204,12 +168,12 @@ func TestMongoEventStore_GetEvents(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -287,12 +251,12 @@ func TestMongoEventStore_GetLatestSequence(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -361,12 +325,12 @@ func TestMongoEventStore_GetEventsByVectorClock(t *testing.T) {
 		for _, seq := range seqs {
 			// 이전 문서와 새 문서 생성
 			oldDoc := &TestDocument{
-				ID:      docID,
-				Name:    "Test Document",
-				Value:   100,
-				Created: time.Now(),
-				Updated: time.Now(),
-				Version: seq,
+				ID:        docID,
+				Name:      "Test Document",
+				Value:     100,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Version:   seq,
 			}
 
 			newDoc := oldDoc.Copy()

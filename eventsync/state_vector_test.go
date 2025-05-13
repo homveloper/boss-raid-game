@@ -2,8 +2,8 @@ package eventsync
 
 import (
 	"context"
+	"eventsync/testutil"
 	"testing"
-	"tictactoe/eventsync/testutil"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -204,12 +204,12 @@ func TestMongoStateVectorManager_GetMissingEvents(t *testing.T) {
 		for _, seq := range seqs {
 			// 이전 문서와 새 문서 생성
 			oldDoc := &TestDocument{
-				ID:      docID,
-				Name:    "Test Document",
-				Value:   100,
-				Created: time.Now(),
-				Updated: time.Now(),
-				Version: seq,
+				ID:        docID,
+				Name:      "Test Document",
+				Value:     100,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Version:   seq,
 			}
 
 			newDoc := oldDoc.Copy()

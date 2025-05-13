@@ -330,6 +330,13 @@ type Storage[T Cachable[T]] interface {
 	//   - The MongoDB collection used by this storage
 	Collection() *mongo.Collection
 
+	// VersionField returns the name of the version field used by this storage.
+	// This is useful for constructing MongoDB queries that interact with the version field.
+	//
+	// Returns:
+	//   - The name of the version field
+	VersionField() string
+
 	// Close closes the storage and releases any resources it holds.
 	// This should be called when the storage is no longer needed to ensure
 	// proper cleanup of resources.

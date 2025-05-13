@@ -300,7 +300,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		}
 
 		// Get current version
-		currentVersion, err := getVersion(doc, versionField)
+		currentVersion, err := GetVersion(doc, versionField)
 		if err != nil {
 			return empty, nil, fmt.Errorf("failed to get current version: %w", err)
 		}
@@ -321,10 +321,11 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		}
 
 		// Generate diff
-		diff, err := GenerateDiff(doc, updatedDoc, newVersion)
+		diff, err := GenerateDiff(doc, updatedDoc)
 		if err != nil {
 			return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
+		diff.Version = newVersion
 
 		// If there are no changes, return the original document copy without updating the database
 		if !diff.HasChanges {
@@ -610,7 +611,7 @@ func getDocumentID[T Cachable[T]](data T) (primitive.ObjectID, error) {
 }
 
 // GenerateDiff generates a diff between two documents
-func GenerateDiff[T Cachable[T]](oldDoc, newDoc T, newVersion int64) (*Diff, error) {
+func GenerateDiff[T Cachable[T]](oldDoc, newDoc T) (*Diff, error) {
 
 	// Generate MongoDB BSON patch (original implementation)
 	bsonPatch, err := CreateBsonPatch(oldDoc, newDoc)
@@ -647,7 +648,6 @@ func GenerateDiff[T Cachable[T]](oldDoc, newDoc T, newVersion int64) (*Diff, err
 	// Create diff object with all patch formats
 	return &Diff{
 		HasChanges: !bsonPatch.IsEmpty(),
-		Version:    newVersion,
 		MergePatch: mergePatch,
 		BsonPatch:  bsonPatch,
 	}, nil
@@ -776,7 +776,7 @@ func (s *StorageImpl[T]) UpdateOne(
 				return empty, err
 			}
 
-			currentVersion, err = getVersion(doc, versionField)
+			currentVersion, err = GetVersion(doc, versionField)
 			if err != nil {
 				return empty, fmt.Errorf("failed to get current version: %w", err)
 			}
@@ -924,7 +924,7 @@ func (s *StorageImpl[T]) UpdateOneWithPipeline(
 				return empty, err
 			}
 
-			currentVersion, err = getVersion(doc, versionField)
+			currentVersion, err = GetVersion(doc, versionField)
 			if err != nil {
 				return empty, fmt.Errorf("failed to get current version: %w", err)
 			}
@@ -1571,4 +1571,8 @@ func (s *StorageImpl[T]) broadcastEvent(event WatchEvent[T]) {
 
 func (s *StorageImpl[T]) getKey(id primitive.ObjectID) string {
 	return id.Hex()
+}
+
+func (s *StorageImpl[T]) VersionField() string {
+	return s.versionField
 }

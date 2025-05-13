@@ -229,7 +229,16 @@ sequenceDiagram
   - 낙관적 동시성 제어 기능 제공
   - 이벤트 저장소와의 통합을 통한 실시간 동기화 지원
 
-#### 2. nodestorage
+#### 2. EventSourcedStorage
+
+- **역할**: 이벤트 소싱 패턴을 구현한 저장소
+- **주요 기능**:
+  - 각 작업마다 클라이언트 ID를 지정하여 이벤트 생성
+  - 문서별, 클라이언트별 벡터 시계 자동 관리
+  - 모든 변경 사항을 이벤트로 저장하고 이를 통해 상태 재구성
+  - 클라이언트의 벡터 시계를 기반으로 누락된 이벤트 조회
+
+#### 3. nodestorage
 
 - **역할**: 낙관적 동시성 제어를 통한 데이터 수정 및 Diff 생성
 - **주요 기능**:
@@ -237,7 +246,7 @@ sequenceDiagram
   - 버전 필드를 사용한 낙관적 동시성 제어
   - MongoDB를 영구 저장소로 사용
 
-#### 3. 이벤트 저장소 (EventStore)
+#### 4. 이벤트 저장소 (EventStore)
 
 - **역할**: EventSyncStorage에서 캡처한 Diff를 이벤트로 변환하여 저장
 - **주요 기능**:
@@ -245,7 +254,7 @@ sequenceDiagram
   - 시퀀스 번호 관리
   - 이벤트 압축 및 만료 처리
 
-#### 4. 스냅샷 저장소 (SnapshotStore)
+#### 5. 스냅샷 저장소 (SnapshotStore)
 
 - **역할**: 특정 시점의 문서 상태를 스냅샷으로 저장
 - **주요 기능**:
@@ -253,7 +262,7 @@ sequenceDiagram
   - 스냅샷 조회 및 관리
   - 오래된 스냅샷 정리
 
-#### 5. 상태 벡터 관리자 (StateVectorManager)
+#### 6. 상태 벡터 관리자 (StateVectorManager)
 
 - **역할**: 클라이언트별 상태 벡터 관리
 - **주요 기능**:
@@ -261,7 +270,7 @@ sequenceDiagram
   - 상태 벡터 기반 누락 이벤트 식별
   - 클라이언트 동기화 상태 추적
 
-#### 6. 동기화 서비스 (SyncService)
+#### 7. 동기화 서비스 (SyncService)
 
 - **역할**: 클라이언트와 서버 간 데이터 동기화 관리
 - **주요 기능**:
@@ -269,7 +278,7 @@ sequenceDiagram
   - 이벤트 브로드캐스트
   - 상태 벡터 기반 동기화 처리
 
-#### 7. 애플리케이션 레이어
+#### 8. 애플리케이션 레이어
 
 - **역할**: 애플리케이션 로직 및 전송 레이어 구현
 - **주요 기능**:
@@ -278,6 +287,8 @@ sequenceDiagram
   - 클라이언트 상태 관리
 
 ### 동작 원리
+
+#### EventSyncStorage 동작 원리
 
 1. **데이터 수정 및 Diff 생성**:
    - 클라이언트가 API를 통해 데이터 수정 요청
@@ -291,7 +302,28 @@ sequenceDiagram
    - 이벤트를 MongoDB의 events 컬렉션에 저장
    - 애플리케이션 코드 수정 없이 이벤트 저장 자동화
 
-3. **실시간 동기화**:
+#### EventSourcedStorage 동작 원리
+
+1. **클라이언트별 데이터 수정 및 이벤트 생성**:
+   - 클라이언트가 API를 통해 데이터 수정 요청
+   - 애플리케이션이 EventSourcedStorage의 UpdateDocument를 호출하면서 클라이언트 ID 전달
+   - EventSourcedStorage가 내부적으로 nodestorage를 사용하여 데이터 수정
+   - nodestorage가 변경 전후 상태를 비교하여 Diff 생성
+
+2. **벡터 시계 관리 및 이벤트 저장**:
+   - EventSourcedStorage가 문서 ID에 대한 현재 벡터 시계 조회
+   - 클라이언트 ID에 대한 시퀀스 번호 증가
+   - Diff를 이벤트로 변환하고 벡터 시계, 클라이언트 ID 등 메타데이터 추가
+   - 이벤트를 MongoDB의 events 컬렉션에 저장
+   - 벡터 시계 업데이트
+
+3. **누락된 이벤트 조회**:
+   - 클라이언트가 자신의 벡터 시계를 서버에 전송
+   - EventSourcedStorage가 클라이언트의 벡터 시계를 기반으로 누락된 이벤트 조회
+   - 누락된 이벤트를 클라이언트에 전송
+   - 클라이언트가 이벤트를 적용하여 상태 업데이트
+
+4. **실시간 동기화**:
    - 새 이벤트가 저장되면 동기화 서비스에 알림
    - 애플리케이션은 동기화 서비스로부터 이벤트를 수신
    - 애플리케이션은 선택한 전송 방식을 통해 클라이언트에 이벤트 전송
@@ -318,6 +350,40 @@ sequenceDiagram
 - 클라이언트는 서버의 변경 사항을 수신만 함
 - 클라이언트는 상태 벡터를 통해 자신의 동기화 상태만 서버에 전달
 - 서버가 모든 데이터 일관성과 충돌 해결을 담당
+
+### EventSyncStorage와 EventSourcedStorage 비교
+
+eventsync 패키지는 두 가지 저장소 구현을 제공합니다:
+
+#### EventSyncStorage
+
+- **장점**:
+  - nodestorage.Storage 인터페이스를 구현하여 기존 코드와의 호환성 유지
+  - 애플리케이션 코드 수정 없이 이벤트 소싱 기능 추가 가능
+  - 이벤트 저장 실패가 전체 작업 실패로 이어지지 않음
+
+- **단점**:
+  - 생성 시 클라이언트 ID를 고정하여 모든 이벤트에 동일한 클라이언트 ID 사용
+  - 다양한 클라이언트의 요청을 처리하기 위해 매번 새로운 인스턴스 생성 필요
+
+#### EventSourcedStorage
+
+- **장점**:
+  - 각 작업마다 클라이언트 ID를 지정할 수 있어 다양한 클라이언트의 요청 처리 가능
+  - 이벤트 소싱에 특화된 인터페이스 제공
+  - 벡터 시계 자동 관리 및 누락된 이벤트 조회 기능 제공
+
+- **단점**:
+  - nodestorage.Storage 인터페이스와 호환되지 않아 기존 코드 수정 필요
+  - 이벤트 저장 실패 시 전체 작업 실패로 이어짐
+
+#### 선택 가이드
+
+- **기존 코드와의 호환성이 중요한 경우**: EventSyncStorage
+- **다양한 클라이언트의 요청을 처리해야 하는 경우**: EventSourcedStorage
+- **이벤트 소싱 패턴을 처음부터 구현하고 싶은 경우**: EventSourcedStorage
+
+자세한 비교는 [STORAGE_COMPARISON.md](STORAGE_COMPARISON.md) 문서를 참조하세요.
 
 ## EventSyncStorage 구현 방식
 
@@ -428,6 +494,73 @@ func NewEventSyncStorage[T nodestorage.Cachable[T]](
 ```
 
 이 구현 방식을 통해 애플리케이션 코드를 최소한으로 수정하면서 nodestorage와 eventsync를 효과적으로 통합할 수 있습니다. 기존에 nodestorage.Storage를 사용하던 코드는 EventSyncStorage로 대체하기만 하면 자동으로 이벤트 저장 기능이 활성화됩니다.
+
+## EventSourcedStorage 구현 방식
+
+EventSourcedStorage는 이벤트 소싱 패턴을 구현한 저장소로, 각 작업마다 클라이언트 ID를 지정할 수 있어 다양한 클라이언트의 요청을 처리할 수 있습니다.
+
+### 1. 인터페이스 설계
+
+```go
+// EventSourcedStorage는 이벤트 소싱 패턴을 구현한 저장소입니다.
+type EventSourcedStorage[T nodestorage.Cachable[T]] struct {
+    storage           nodestorage.Storage[T] // 내부적으로 실제 nodestorage 인스턴스 사용
+    eventStore        EventStore             // 이벤트 저장소
+    vectorClockManager VectorClockManager    // 벡터 시계 관리자
+    logger            *zap.Logger
+}
+```
+
+### 2. 문서 생성 및 이벤트 저장
+
+```go
+// CreateDocument는 새 문서를 생성하고 이벤트를 저장합니다.
+func (s *EventSourcedStorage[T]) CreateDocument(ctx context.Context, data T, clientID string) (T, error) {
+    // 1. nodestorage를 사용하여 문서 생성
+    doc, err := s.storage.FindOneAndUpsert(ctx, data)
+
+    // 2. 벡터 시계 관리 및 이벤트 저장
+    // 벡터 시계 가져오기
+    vectorClock, err := s.vectorClockManager.GetVectorClock(ctx, documentID)
+
+    // 현재 클라이언트의 시퀀스 번호 증가
+    currentSeq := vectorClock[clientID]
+    newSeq := currentSeq + 1
+    vectorClock[clientID] = newSeq
+
+    // 이벤트 생성 및 저장
+    event := &Event{
+        ID:          primitive.NewObjectID(),
+        DocumentID:  documentID,
+        Timestamp:   time.Now(),
+        Operation:   "create",
+        ClientID:    clientID,
+        VectorClock: vectorClock,
+        Metadata:    map[string]interface{}{"created_doc": doc},
+    }
+
+    // 이벤트 저장
+    if err := s.eventStore.StoreEvent(ctx, event); err != nil {
+        return doc, fmt.Errorf("document created but failed to store event: %w", err)
+    }
+
+    // 벡터 시계 업데이트
+    s.vectorClockManager.UpdateVectorClock(ctx, documentID, clientID, newSeq)
+
+    return doc, nil
+}
+```
+
+### 3. 누락된 이벤트 조회
+
+```go
+// GetMissingEvents는 클라이언트의 벡터 시계를 기반으로 누락된 이벤트를 조회합니다.
+func (s *EventSourcedStorage[T]) GetMissingEvents(ctx context.Context, documentID primitive.ObjectID, clientVectorClock map[string]int64) ([]*Event, error) {
+    return s.eventStore.GetEventsByVectorClock(ctx, documentID, clientVectorClock)
+}
+```
+
+이 구현 방식을 통해 다양한 클라이언트의 요청을 처리하고, 벡터 시계를 자동으로 관리하며, 누락된 이벤트를 조회할 수 있는 이벤트 소싱 패턴을 구현할 수 있습니다.
 
 
 ## 이벤트 소싱과 상태 벡터

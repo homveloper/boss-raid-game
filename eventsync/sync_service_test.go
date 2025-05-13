@@ -2,8 +2,8 @@ package eventsync
 
 import (
 	"context"
+	"eventsync/testutil"
 	"testing"
-	"tictactoe/eventsync/testutil"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -53,12 +53,12 @@ func TestSyncService_GetMissingEvents(t *testing.T) {
 		for _, seq := range seqs {
 			// 이전 문서와 새 문서 생성
 			oldDoc := &TestDocument{
-				ID:      docID,
-				Name:    "Test Document",
-				Value:   100,
-				Created: time.Now(),
-				Updated: time.Now(),
-				Version: seq,
+				ID:        docID,
+				Name:      "Test Document",
+				Value:     100,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Version:   seq,
 			}
 
 			newDoc := oldDoc.Copy()
@@ -222,12 +222,12 @@ func TestSyncService_StoreEvent(t *testing.T) {
 
 	// 이전 문서와 새 문서 생성
 	oldDoc := &TestDocument{
-		ID:      docID,
-		Name:    "",
-		Value:   0,
-		Created: time.Now(),
-		Updated: time.Now(),
-		Version: 0,
+		ID:        docID,
+		Name:      "",
+		Value:     0,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Version:   0,
 	}
 
 	newDoc := oldDoc.Copy()
@@ -299,12 +299,12 @@ func TestSyncService_HandleStorageEvent(t *testing.T) {
 
 	// 이전 문서와 새 문서 생성
 	oldDoc := &TestDocument{
-		ID:      docID,
-		Name:    "",
-		Value:   0,
-		Created: time.Now(),
-		Updated: time.Now(),
-		Version: 0,
+		ID:        docID,
+		Name:      "",
+		Value:     0,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Version:   0,
 	}
 
 	newDoc := oldDoc.Copy()

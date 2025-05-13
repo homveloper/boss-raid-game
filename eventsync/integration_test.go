@@ -2,8 +2,8 @@ package eventsync
 
 import (
 	"context"
+	"eventsync/testutil"
 	"testing"
-	"tictactoe/eventsync/testutil"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -64,13 +64,13 @@ func TestStorageListener_Integration(t *testing.T) {
 
 	// 테스트 문서 생성
 	doc := &TestDocument{
-		ID:      primitive.NewObjectID(),
-		Name:    "Test Document",
-		Value:   100,
-		Tags:    []string{"test", "integration"},
-		Created: time.Now(),
-		Updated: time.Now(),
-		Version: 1,
+		ID:        primitive.NewObjectID(),
+		Name:      "Test Document",
+		Value:     100,
+		Tags:      []string{"test", "integration"},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Version:   1,
 	}
 
 	// 문서 저장
@@ -116,7 +116,7 @@ func TestStorageListener_Integration(t *testing.T) {
 		d.Name = "Updated Document"
 		d.Value = 200
 		d.Tags = append(d.Tags, "updated")
-		d.Updated = time.Now()
+		d.UpdatedAt = time.Now()
 		d.Version++
 		return d, nil
 	})
@@ -243,12 +243,12 @@ func TestGetEventsWithSnapshot_Integration(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()
@@ -286,12 +286,12 @@ func TestGetEventsWithSnapshot_Integration(t *testing.T) {
 	for i := 10; i < 15; i++ {
 		// 이전 문서와 새 문서 생성
 		oldDoc := &TestDocument{
-			ID:      docID,
-			Name:    "Test Document",
-			Value:   100 + i,
-			Created: time.Now(),
-			Updated: time.Now(),
-			Version: int64(i + 1),
+			ID:        docID,
+			Name:      "Test Document",
+			Value:     100 + i,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Version:   int64(i + 1),
 		}
 
 		newDoc := oldDoc.Copy()

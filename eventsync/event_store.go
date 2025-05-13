@@ -25,6 +25,7 @@ type Event struct {
 	Diff        *nodestorage.Diff      `bson:"diff" json:"diff"`
 	VectorClock map[string]int64       `bson:"vector_clock" json:"vectorClock"`
 	ClientID    string                 `bson:"client_id" json:"clientId"`
+	ServerSeq   int64                  `bson:"server_seq" json:"serverSeq"`
 	Metadata    map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
@@ -41,6 +42,12 @@ type EventStore interface {
 
 	// GetEventsByVectorClock는 상태 벡터를 기준으로 누락된 이벤트를 조회합니다.
 	GetEventsByVectorClock(ctx context.Context, documentID primitive.ObjectID, vectorClock map[string]int64) ([]*Event, error)
+
+	// GetEventsAfterVersion은 지정된 버전 이후의 이벤트를 조회합니다.
+	GetEventsAfterVersion(ctx context.Context, documentID primitive.ObjectID, afterVersion int64) ([]*Event, error)
+
+	// GetLatestVersion은 문서의 최신 버전을 조회합니다.
+	GetLatestVersion(ctx context.Context, documentID primitive.ObjectID) (int64, error)
 
 	// Close는 이벤트 저장소를 닫습니다.
 	Close() error
@@ -220,6 +227,46 @@ func (s *MongoEventStore) GetEventsByVectorClock(ctx context.Context, documentID
 		zap.Int("event_count", len(events)))
 
 	return events, nil
+}
+
+// GetEventsAfterVersion은 지정된 버전 이후의 이벤트를 조회합니다.
+func (s *MongoEventStore) GetEventsAfterVersion(ctx context.Context, documentID primitive.ObjectID, afterVersion int64) ([]*Event, error) {
+	filter := bson.M{
+		"document_id": documentID,
+		"server_seq":  bson.M{"$gt": afterVersion},
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "server_seq", Value: 1}})
+
+	cursor, err := s.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find events after version: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var events []*Event
+	if err := cursor.All(ctx, &events); err != nil {
+		return nil, fmt.Errorf("failed to decode events: %w", err)
+	}
+
+	return events, nil
+}
+
+// GetLatestVersion은 문서의 최신 버전을 조회합니다.
+func (s *MongoEventStore) GetLatestVersion(ctx context.Context, documentID primitive.ObjectID) (int64, error) {
+	filter := bson.M{"document_id": documentID}
+	opts := options.FindOne().SetSort(bson.D{{Key: "server_seq", Value: -1}})
+
+	var event Event
+	err := s.collection.FindOne(ctx, filter, opts).Decode(&event)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return 0, nil // 이벤트가 없으면 버전 0 반환
+		}
+		return 0, fmt.Errorf("failed to find latest event: %w", err)
+	}
+
+	return event.ServerSeq, nil
 }
 
 // Close는 이벤트 저장소를 닫습니다.

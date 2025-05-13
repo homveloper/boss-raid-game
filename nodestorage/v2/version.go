@@ -7,8 +7,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// getVersion retrieves the version value from a document
-func getVersion(doc interface{}, versionField string) (int64, error) {
+// GetVersion retrieves the version value from a document
+func GetVersion(doc interface{}, versionField string) (int64, error) {
 	// Use reflection to get the version field
 	v := reflect.ValueOf(doc)
 
@@ -90,7 +90,7 @@ func setVersion(doc interface{}, versionField string, version int64) error {
 // incrementVersion increments the version value in a document
 func incrementVersion(doc interface{}, versionField string) (int64, error) {
 	// Get current version
-	currentVersion, err := getVersion(doc, versionField)
+	currentVersion, err := GetVersion(doc, versionField)
 	if err != nil {
 		return 0, err
 	}
