@@ -261,6 +261,8 @@ sequenceDiagram
   - 주기적 또는 조건부 스냅샷 생성
   - 스냅샷 조회 및 관리
   - 오래된 스냅샷 정리
+  - 버전 기반 스냅샷 관리
+  - 서버 시퀀스 번호와 연동된 스냅샷 생성
 
 #### 6. 상태 벡터 관리자 (StateVectorManager)
 
@@ -310,16 +312,55 @@ sequenceDiagram
    - EventSourcedStorage가 내부적으로 nodestorage를 사용하여 데이터 수정
    - nodestorage가 변경 전후 상태를 비교하여 Diff 생성
 
-2. **벡터 시계 관리 및 이벤트 저장**:
-   - EventSourcedStorage가 문서 ID에 대한 현재 벡터 시계 조회
-   - 클라이언트 ID에 대한 시퀀스 번호 증가
-   - Diff를 이벤트로 변환하고 벡터 시계, 클라이언트 ID 등 메타데이터 추가
+#### EventSourcedStorage 생성 방법
+
+1. **기본 생성자 사용**:
+   ```go
+   // 기본 생성자 사용
+   eventSourcedStorage := eventsync.NewEventSourcedStorage[GameState](
+       storage,
+       eventStore,
+       logger,
+       eventsync.WithSnapshotStore(snapshotStore),
+       eventsync.WithAutoSnapshot(true),
+       eventsync.WithSnapshotInterval(5),
+   )
+   ```
+
+2. **옵션 패턴 기반 생성자 사용**:
+   ```go
+   // MongoDB 저장소 제공자 생성
+   provider := eventsync.NewMongoDBStorageProvider(client, dbName, logger)
+
+   // 옵션 패턴 기반 생성자 사용
+   eventSourcedStorage, err := eventsync.NewEventSourcedStorageWithOptions[GameState](
+       ctx,
+       provider,
+       collectionName,
+       eventsync.WithEventCollectionName("game_events"),
+       eventsync.WithEnableSnapshot(true),
+       eventsync.WithSnapshotCollectionName("game_snapshots"),
+       eventsync.WithFactoryAutoSnapshot(true),
+       eventsync.WithFactorySnapshotInterval(5),
+       eventsync.WithFactoryLogger(logger),
+   )
+   ```
+
+이 옵션 패턴 기반 생성자는 다음과 같은 장점을 제공합니다:
+- 필수 인자만 직접 받고 나머지는 옵션으로 설정
+- 데이터베이스 시스템에 종속적이지 않은 설계
+- 기본값 제공으로 간편한 사용
+- 필요한 의존성 자동 생성
+
+2. **버전 관리 및 이벤트 저장**:
+   - EventSourcedStorage가 문서의 현재 버전 확인
+   - Diff를 이벤트로 변환하고 버전, 클라이언트 ID 등 메타데이터 추가
    - 이벤트를 MongoDB의 events 컬렉션에 저장
-   - 벡터 시계 업데이트
+   - 자동 스냅샷 생성 (설정된 경우)
 
 3. **누락된 이벤트 조회**:
-   - 클라이언트가 자신의 벡터 시계를 서버에 전송
-   - EventSourcedStorage가 클라이언트의 벡터 시계를 기반으로 누락된 이벤트 조회
+   - 클라이언트가 자신의 마지막 버전을 서버에 전송
+   - EventSourcedStorage가 클라이언트의 버전을 기반으로 누락된 이벤트 조회
    - 누락된 이벤트를 클라이언트에 전송
    - 클라이언트가 이벤트를 적용하여 상태 업데이트
 
@@ -330,17 +371,19 @@ sequenceDiagram
    - 클라이언트는 이벤트를 수신하여 로컬 상태 업데이트
 
 4. **클라이언트 재연결 시 동기화**:
-   - 클라이언트가 연결 시 자신의 상태 벡터 전송
+   - 클라이언트가 연결 시 자신의 마지막 버전 전송
    - 애플리케이션은 동기화 서비스에 누락된 이벤트 요청
-   - 동기화 서비스는 상태 벡터를 기반으로 누락된 이벤트 식별
+   - 동기화 서비스는 버전을 기반으로 누락된 이벤트 식별
    - 최신 스냅샷과 누락된 이벤트를 애플리케이션에 반환
    - 애플리케이션은 선택한 전송 방식을 통해 클라이언트에 전송
    - 클라이언트는 스냅샷을 적용한 후 이벤트를 순차적으로 적용
 
 5. **최적화**:
-   - 주기적으로 스냅샷 생성
+   - 주기적으로 스냅샷 생성 (자동 또는 수동)
+   - 이벤트 개수 기반 자동 스냅샷 생성
    - 오래된 이벤트 압축 또는 삭제
    - 계층형 저장소를 통한 효율적인 데이터 관리
+   - 스냅샷과 이벤트를 함께 사용한 효율적인 상태 복원
 
 ### 서버 권한 모델 적용
 
@@ -371,7 +414,9 @@ eventsync 패키지는 두 가지 저장소 구현을 제공합니다:
 - **장점**:
   - 각 작업마다 클라이언트 ID를 지정할 수 있어 다양한 클라이언트의 요청 처리 가능
   - 이벤트 소싱에 특화된 인터페이스 제공
-  - 벡터 시계 자동 관리 및 누락된 이벤트 조회 기능 제공
+  - 버전 기반 이벤트 관리 및 누락된 이벤트 조회 기능 제공
+  - 자동 또는 수동 스냅샷 생성 지원
+  - 스냅샷과 이벤트를 함께 사용한 효율적인 상태 복원
 
 - **단점**:
   - nodestorage.Storage 인터페이스와 호환되지 않아 기존 코드 수정 필요

@@ -84,11 +84,20 @@ func main() {
 		logger.Fatal("EventStore 생성 실패", zap.Error(err))
 	}
 
-	// 3. EventSourcedStorage 생성
+	// 3. 스냅샷 저장소 설정
+	snapshotStore, err := eventsync.NewMongoSnapshotStore(ctx, client, dbName, "snapshots", eventStore, logger)
+	if err != nil {
+		logger.Fatal("SnapshotStore 생성 실패", zap.Error(err))
+	}
+
+	// 4. EventSourcedStorage 생성
 	eventSourcedStorage := eventsync.NewEventSourcedStorage(
 		storage,
 		eventStore,
 		logger,
+		eventsync.WithSnapshotStore(snapshotStore),
+		eventsync.WithAutoSnapshot(true),
+		eventsync.WithSnapshotInterval(5), // 5개 이벤트마다 스냅샷 생성
 	)
 
 	// 게임 상태 생성 또는 업데이트
@@ -174,6 +183,34 @@ func main() {
 			zap.Int64("server_seq", event.ServerSeq),
 			zap.Time("timestamp", event.Timestamp))
 	}
+
+	// 수동으로 스냅샷 생성
+	snapshot, err := eventSourcedStorage.CreateSnapshot(ctx, gameID)
+	if err != nil {
+		logger.Fatal("스냅샷 생성 실패", zap.Error(err))
+	}
+	logger.Info("스냅샷 생성됨",
+		zap.String("document_id", gameID.Hex()),
+		zap.Int64("version", snapshot.Version),
+		zap.Int64("server_seq", snapshot.ServerSeq))
+
+	// 스냅샷과 이벤트 함께 조회
+	latestSnapshot, eventsAfterSnapshot, err := eventSourcedStorage.GetEventsWithSnapshot(ctx, gameID)
+	if err != nil {
+		logger.Fatal("스냅샷과 이벤트 조회 실패", zap.Error(err))
+	}
+
+	if latestSnapshot != nil {
+		logger.Info("최신 스냅샷 조회됨",
+			zap.String("document_id", gameID.Hex()),
+			zap.Int64("version", latestSnapshot.Version),
+			zap.Int64("server_seq", latestSnapshot.ServerSeq),
+			zap.Time("created_at", latestSnapshot.CreatedAt))
+	} else {
+		logger.Info("스냅샷이 없습니다")
+	}
+
+	logger.Info("스냅샷 이후 이벤트 조회됨", zap.Int("event_count", len(eventsAfterSnapshot)))
 
 	// 게임 상태 삭제 (admin-panel 클라이언트로)
 	// err = eventSourcedStorage.DeleteOne(ctx, gameID, clientIDs[1])

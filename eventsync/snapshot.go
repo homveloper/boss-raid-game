@@ -14,27 +14,27 @@ import (
 
 // Snapshot 구조체는 특정 시점의 문서 상태를 나타냅니다.
 type Snapshot struct {
-	ID          primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
-	DocumentID  primitive.ObjectID     `bson:"document_id" json:"documentId"`
-	State       map[string]interface{} `bson:"state" json:"state"`
-	Version     int64                  `bson:"version" json:"version"`
-	SequenceNum int64                  `bson:"sequence_num" json:"sequenceNum"`
-	CreatedAt   time.Time              `bson:"created_at" json:"createdAt"`
+	ID         primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	DocumentID primitive.ObjectID     `bson:"document_id" json:"documentId"`
+	State      map[string]interface{} `bson:"state" json:"state"`
+	Version    int64                  `bson:"version" json:"version"`
+	ServerSeq  int64                  `bson:"server_seq" json:"serverSeq"`
+	CreatedAt  time.Time              `bson:"created_at" json:"createdAt"`
 }
 
 // SnapshotStore 인터페이스는 스냅샷 저장소의 기능을 정의합니다.
 type SnapshotStore interface {
 	// CreateSnapshot은 새로운 스냅샷을 생성합니다.
-	CreateSnapshot(ctx context.Context, documentID primitive.ObjectID, state map[string]interface{}, version int64) (*Snapshot, error)
+	CreateSnapshot(ctx context.Context, documentID primitive.ObjectID, state map[string]interface{}, version int64, serverSeq int64) (*Snapshot, error)
 
 	// GetLatestSnapshot은 문서의 최신 스냅샷을 조회합니다.
 	GetLatestSnapshot(ctx context.Context, documentID primitive.ObjectID) (*Snapshot, error)
 
-	// GetSnapshotBySequence는 특정 시퀀스 번호 이전의 가장 최근 스냅샷을 조회합니다.
-	GetSnapshotBySequence(ctx context.Context, documentID primitive.ObjectID, maxSequence int64) (*Snapshot, error)
+	// GetSnapshotByServerSeq는 특정 서버 시퀀스 이전의 가장 최근 스냅샷을 조회합니다.
+	GetSnapshotByServerSeq(ctx context.Context, documentID primitive.ObjectID, maxServerSeq int64) (*Snapshot, error)
 
-	// DeleteSnapshots는 특정 시퀀스 번호 이전의 모든 스냅샷을 삭제합니다.
-	DeleteSnapshots(ctx context.Context, documentID primitive.ObjectID, maxSequence int64) (int64, error)
+	// DeleteSnapshots는 특정 서버 시퀀스 이전의 모든 스냅샷을 삭제합니다.
+	DeleteSnapshots(ctx context.Context, documentID primitive.ObjectID, maxServerSeq int64) (int64, error)
 
 	// Close는 스냅샷 저장소를 닫습니다.
 	Close() error
@@ -57,7 +57,7 @@ func NewMongoSnapshotStore(ctx context.Context, client *mongo.Client, database, 
 		{
 			Keys: bson.D{
 				{Key: "document_id", Value: 1},
-				{Key: "sequence_num", Value: -1},
+				{Key: "server_seq", Value: -1},
 			},
 		},
 		{
@@ -80,32 +80,26 @@ func NewMongoSnapshotStore(ctx context.Context, client *mongo.Client, database, 
 }
 
 // CreateSnapshot은 새로운 스냅샷을 생성합니다.
-func (s *MongoSnapshotStore) CreateSnapshot(ctx context.Context, documentID primitive.ObjectID, state map[string]interface{}, version int64) (*Snapshot, error) {
-	// 현재 시퀀스 번호 조회
-	seqNum, err := s.eventStore.GetLatestSequence(ctx, documentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest sequence: %w", err)
-	}
-
+func (s *MongoSnapshotStore) CreateSnapshot(ctx context.Context, documentID primitive.ObjectID, state map[string]interface{}, version int64, serverSeq int64) (*Snapshot, error) {
 	// 스냅샷 생성
 	snapshot := &Snapshot{
-		ID:          primitive.NewObjectID(),
-		DocumentID:  documentID,
-		State:       state,
-		Version:     version,
-		SequenceNum: seqNum,
-		CreatedAt:   time.Now(),
+		ID:         primitive.NewObjectID(),
+		DocumentID: documentID,
+		State:      state,
+		Version:    version,
+		ServerSeq:  serverSeq,
+		CreatedAt:  time.Now(),
 	}
 
 	// 스냅샷 저장
-	_, err = s.collection.InsertOne(ctx, snapshot)
+	_, err := s.collection.InsertOne(ctx, snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert snapshot: %w", err)
 	}
 
 	s.logger.Info("Snapshot created",
 		zap.String("document_id", documentID.Hex()),
-		zap.Int64("sequence_num", seqNum),
+		zap.Int64("server_seq", serverSeq),
 		zap.Int64("version", version))
 
 	return snapshot, nil
@@ -133,18 +127,18 @@ func (s *MongoSnapshotStore) GetLatestSnapshot(ctx context.Context, documentID p
 		zap.String("document_id", documentID.Hex()),
 		zap.String("snapshot_id", snapshot.ID.Hex()),
 		zap.Int64("version", snapshot.Version),
-		zap.Int64("sequence_num", snapshot.SequenceNum))
+		zap.Int64("server_seq", snapshot.ServerSeq))
 
 	return &snapshot, nil
 }
 
-// GetSnapshotBySequence는 특정 시퀀스 번호 이전의 가장 최근 스냅샷을 조회합니다.
-func (s *MongoSnapshotStore) GetSnapshotBySequence(ctx context.Context, documentID primitive.ObjectID, maxSequence int64) (*Snapshot, error) {
+// GetSnapshotByServerSeq는 특정 서버 시퀀스 이전의 가장 최근 스냅샷을 조회합니다.
+func (s *MongoSnapshotStore) GetSnapshotByServerSeq(ctx context.Context, documentID primitive.ObjectID, maxServerSeq int64) (*Snapshot, error) {
 	filter := bson.M{
-		"document_id":  documentID,
-		"sequence_num": bson.M{"$lte": maxSequence},
+		"document_id": documentID,
+		"server_seq":  bson.M{"$lte": maxServerSeq},
 	}
-	opts := options.FindOne().SetSort(bson.D{{Key: "sequence_num", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: "server_seq", Value: -1}})
 
 	var snapshot Snapshot
 	err := s.collection.FindOne(ctx, filter, opts).Decode(&snapshot)
@@ -158,10 +152,10 @@ func (s *MongoSnapshotStore) GetSnapshotBySequence(ctx context.Context, document
 	return &snapshot, nil
 }
 
-// DeleteSnapshots는 특정 시퀀스 번호 이전의 모든 스냅샷을 삭제합니다.
-func (s *MongoSnapshotStore) DeleteSnapshots(ctx context.Context, documentID primitive.ObjectID, maxSequence int64) (int64, error) {
-	// 최신 스냅샷은 유지하기 위해 해당 시퀀스 번호 이전의 스냅샷 중 가장 최근 것을 찾음
-	latestSnapshot, err := s.GetSnapshotBySequence(ctx, documentID, maxSequence)
+// DeleteSnapshots는 특정 서버 시퀀스 이전의 모든 스냅샷을 삭제합니다.
+func (s *MongoSnapshotStore) DeleteSnapshots(ctx context.Context, documentID primitive.ObjectID, maxServerSeq int64) (int64, error) {
+	// 최신 스냅샷은 유지하기 위해 해당 서버 시퀀스 이전의 스냅샷 중 가장 최근 것을 찾음
+	latestSnapshot, err := s.GetSnapshotByServerSeq(ctx, documentID, maxServerSeq)
 	if err != nil {
 		return 0, err
 	}
@@ -173,8 +167,8 @@ func (s *MongoSnapshotStore) DeleteSnapshots(ctx context.Context, documentID pri
 
 	// 최신 스냅샷보다 오래된 스냅샷만 삭제
 	filter := bson.M{
-		"document_id":  documentID,
-		"sequence_num": bson.M{"$lt": latestSnapshot.SequenceNum},
+		"document_id": documentID,
+		"server_seq":  bson.M{"$lt": latestSnapshot.ServerSeq},
 	}
 
 	result, err := s.collection.DeleteMany(ctx, filter)
@@ -185,7 +179,7 @@ func (s *MongoSnapshotStore) DeleteSnapshots(ctx context.Context, documentID pri
 	s.logger.Info("Snapshots deleted",
 		zap.String("document_id", documentID.Hex()),
 		zap.Int64("deleted_count", result.DeletedCount),
-		zap.Int64("kept_sequence", latestSnapshot.SequenceNum))
+		zap.Int64("kept_server_seq", latestSnapshot.ServerSeq))
 
 	return result.DeletedCount, nil
 }
@@ -210,7 +204,7 @@ func GetEventsWithSnapshot(ctx context.Context, documentID primitive.ObjectID, s
 		events, err = eventStore.GetEvents(ctx, documentID, 0)
 	} else {
 		// 스냅샷 이후의 이벤트만 조회
-		events, err = eventStore.GetEvents(ctx, documentID, snapshot.SequenceNum)
+		events, err = eventStore.GetEventsAfterVersion(ctx, documentID, snapshot.ServerSeq)
 	}
 
 	if err != nil {
