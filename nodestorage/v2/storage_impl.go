@@ -311,7 +311,9 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		// Apply edit function to the document
 		updatedDoc, err := updateFn(docCopy)
 		if err != nil {
-			return empty, nil, fmt.Errorf("edit function failed: %w", err)
+			// this err maybe business logic error, so we don't retry
+			// and return directly
+			return empty, nil, err
 		}
 
 		// Increment version
