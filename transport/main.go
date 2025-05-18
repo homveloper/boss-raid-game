@@ -44,31 +44,31 @@ func Example() {
 	}
 
 	// Create storages
-	mineStorage, err := nodestorage.NewStorage[*Mine](ctx, client, mineCollection, mineCache, storageOptions)
+	mineStorage, err := nodestorage.NewStorage[*Mine](ctx, mineCollection, mineCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create mine storage: %v", err)
 	}
 	defer mineStorage.Close()
 
-	mineConfigStorage, err := nodestorage.NewStorage[*MineConfig](ctx, client, mineConfigCollection, mineConfigCache, storageOptions)
+	mineConfigStorage, err := nodestorage.NewStorage[*MineConfig](ctx, mineConfigCollection, mineConfigCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create mine config storage: %v", err)
 	}
 	defer mineConfigStorage.Close()
 
-	transportStorage, err := nodestorage.NewStorage[*Transport](ctx, client, transportCollection, transportCache, storageOptions)
+	transportStorage, err := nodestorage.NewStorage[*Transport](ctx, transportCollection, transportCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create transport storage: %v", err)
 	}
 	defer transportStorage.Close()
 
-	ticketStorage, err := nodestorage.NewStorage[*TransportTicket](ctx, client, ticketCollection, ticketCache, storageOptions)
+	ticketStorage, err := nodestorage.NewStorage[*TransportTicket](ctx, ticketCollection, ticketCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create ticket storage: %v", err)
 	}
 	defer ticketStorage.Close()
 
-	generalStorage, err := nodestorage.NewStorage[*General](ctx, client, generalCollection, generalCache, storageOptions)
+	generalStorage, err := nodestorage.NewStorage[*General](ctx, generalCollection, generalCache, storageOptions)
 	if err != nil {
 		log.Fatalf("Failed to create general storage: %v", err)
 	}
