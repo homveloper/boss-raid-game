@@ -1,11 +1,12 @@
-module github.com/yourusername/eventsourced
+module eventsourced
 
-go 1.21
+go 1.22
 
 require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/uuid v1.3.1
 	github.com/stretchr/testify v1.8.4
+	github.com/yourusername/nodestorage/v2 v2.0.0
 	go.mongodb.org/mongo-driver v1.12.1
 )
 
@@ -26,3 +27,6 @@ require (
 	golang.org/x/text v0.12.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// 로컬 개발을 위한 replace 지시문
+replace github.com/yourusername/nodestorage/v2 => ../nodestorage/v2

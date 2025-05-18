@@ -2,12 +2,12 @@ package helper
 
 import (
 	"context"
-	"log"
 
-	"github.com/yourusername/eventsourced/pkg/aggregate"
-	"github.com/yourusername/eventsourced/pkg/command"
-	"github.com/yourusername/eventsourced/pkg/event"
-	"github.com/yourusername/eventsourced/pkg/storage"
+	"eventsourced/pkg/aggregate"
+	"eventsourced/pkg/command"
+	"eventsourced/pkg/event"
+	"eventsourced/pkg/storage"
+
 	"go.mongodb.org/mongo-driver/mongo"
 )
 

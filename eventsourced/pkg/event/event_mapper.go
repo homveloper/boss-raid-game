@@ -4,14 +4,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourusername/eventsourced/pkg/storage"
+	"eventsourced/pkg/common"
 )
 
-// EventMapper는 문서 변경을 이벤트로 매핑하는 인터페이스입니다.
-type EventMapper interface {
-	// MapToEvents는 문서 변경을 이벤트로 매핑합니다.
-	MapToEvents(collection string, id string, diff *storage.Diff) []Event
-}
+// EventMapper 인터페이스는 common 패키지로 이동했습니다.
+// 하위 호환성을 위해 타입 별칭 제공
+type EventMapper = common.EventMapper
 
 // CollectionEventTypes는 컬렉션별 이벤트 타입 정의입니다.
 type CollectionEventTypes struct {
@@ -52,9 +50,9 @@ func (m *DefaultEventMapper) RegisterCollectionEventTypes(collection string, eve
 }
 
 // MapToEvents는 문서 변경을 이벤트로 매핑합니다.
-func (m *DefaultEventMapper) MapToEvents(collection string, id string, diff *storage.Diff) []Event {
+func (m *DefaultEventMapper) MapToEvents(collection string, id string, diff *common.Diff) []Event {
 	events := make([]Event, 0, 1)
-	
+
 	// 컬렉션별 이벤트 타입 조회
 	eventTypes, ok := m.collectionEventTypes[collection]
 	if !ok {
@@ -65,7 +63,7 @@ func (m *DefaultEventMapper) MapToEvents(collection string, id string, diff *sto
 			Deleted: "EntityDeleted",
 		}
 	}
-	
+
 	// 이벤트 타입 결정
 	var eventType string
 	if diff.IsNew {
@@ -75,7 +73,7 @@ func (m *DefaultEventMapper) MapToEvents(collection string, id string, diff *sto
 	} else {
 		eventType = eventTypes.Deleted
 	}
-	
+
 	// 애그리게이트 타입 결정 (컬렉션 이름 기반)
 	aggregateType := collection
 	if len(collection) > 0 {
@@ -88,7 +86,7 @@ func (m *DefaultEventMapper) MapToEvents(collection string, id string, diff *sto
 			aggregateType = strings.ToUpper(aggregateType[:1]) + aggregateType[1:]
 		}
 	}
-	
+
 	// 기본 이벤트 생성
 	event := NewDefaultEvent(
 		eventType,
@@ -103,8 +101,8 @@ func (m *DefaultEventMapper) MapToEvents(collection string, id string, diff *sto
 			"has_changes": diff.HasChanges,
 		},
 	)
-	
+
 	events = append(events, event)
-	
+
 	return events
 }

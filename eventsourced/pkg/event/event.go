@@ -2,29 +2,13 @@ package event
 
 import (
 	"context"
+	"eventsourced/pkg/common"
 	"time"
 )
 
-// Event는 도메인 이벤트 인터페이스입니다.
-type Event interface {
-	// EventType은 이벤트 타입을 반환합니다.
-	EventType() string
-
-	// AggregateID는 이벤트가 속한 애그리게이트 ID를 반환합니다.
-	AggregateID() string
-
-	// AggregateType은 이벤트가 속한 애그리게이트 타입을 반환합니다.
-	AggregateType() string
-
-	// Version은 이벤트 버전을 반환합니다.
-	Version() int
-
-	// Timestamp는 이벤트 발생 시간을 반환합니다.
-	Timestamp() time.Time
-
-	// Data는 이벤트 데이터를 반환합니다.
-	Data() interface{}
-}
+// Event 인터페이스는 common 패키지로 이동했습니다.
+// 하위 호환성을 위해 타입 별칭 제공
+type Event = common.Event
 
 // DefaultEvent는 기본 이벤트 구현입니다.
 type DefaultEvent struct {
@@ -90,11 +74,9 @@ func Now() time.Time {
 	return time.Now().UTC()
 }
 
-// EventHandler는 이벤트 핸들러 인터페이스입니다.
-type EventHandler interface {
-	// HandleEvent는 이벤트를 처리합니다.
-	HandleEvent(ctx context.Context, event Event) error
-}
+// EventHandler 인터페이스는 common 패키지로 이동했습니다.
+// 하위 호환성을 위해 타입 별칭 제공
+type EventHandler = common.EventHandler
 
 // EventHandlerFunc는 함수를 EventHandler로 변환합니다.
 type EventHandlerFunc func(ctx context.Context, event Event) error
@@ -104,17 +86,9 @@ func (f EventHandlerFunc) HandleEvent(ctx context.Context, event Event) error {
 	return f(ctx, event)
 }
 
-// EventBus는 이벤트 버스 인터페이스입니다.
-type EventBus interface {
-	// PublishEvent는 이벤트를 발행합니다.
-	PublishEvent(ctx context.Context, event Event) error
-
-	// Subscribe는 특정 이벤트 타입에 핸들러를 등록합니다.
-	Subscribe(eventType string, handler EventHandler)
-
-	// SubscribeAll은 모든 이벤트에 핸들러를 등록합니다.
-	SubscribeAll(handler EventHandler)
-}
+// EventBus 인터페이스는 common 패키지로 이동했습니다.
+// 하위 호환성을 위해 타입 별칭 제공
+type EventBus = common.EventBus
 
 // EventSerializer는 이벤트 직렬화 인터페이스입니다.
 type EventSerializer interface {

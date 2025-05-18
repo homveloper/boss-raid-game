@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/yourusername/eventsourced/pkg/event"
+	"eventsourced/pkg/event"
 )
 
 // Aggregate는 애그리게이트 인터페이스입니다.
@@ -36,18 +36,18 @@ type Aggregate interface {
 
 // BaseAggregate는 기본 애그리게이트 구현입니다.
 type BaseAggregate struct {
-	id               string
-	aggregateType    string
-	version          int
+	id                string
+	aggregateType     string
+	version           int
 	uncommittedEvents []event.Event
 }
 
 // NewBaseAggregate는 새로운 BaseAggregate를 생성합니다.
 func NewBaseAggregate(id string, aggregateType string) *BaseAggregate {
 	return &BaseAggregate{
-		id:               id,
-		aggregateType:    aggregateType,
-		version:          0,
+		id:                id,
+		aggregateType:     aggregateType,
+		version:           0,
 		uncommittedEvents: make([]event.Event, 0),
 	}
 }

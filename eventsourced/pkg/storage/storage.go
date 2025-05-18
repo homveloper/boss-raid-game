@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"time"
+
+	"eventsourced/pkg/common"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -46,16 +47,9 @@ func NewStorage(ctx context.Context, client *mongo.Client, dbName string, opts *
 	}, nil
 }
 
-// Diff는 문서 변경 사항을 나타냅니다.
-type Diff struct {
-	ID         string      `json:"id" bson:"id"`
-	Collection string      `json:"collection" bson:"collection"`
-	IsNew      bool        `json:"is_new" bson:"is_new"`
-	HasChanges bool        `json:"has_changes" bson:"has_changes"`
-	Version    int         `json:"version" bson:"version"`
-	MergePatch interface{} `json:"merge_patch" bson:"merge_patch"`
-	BsonPatch  interface{} `json:"bson_patch" bson:"bson_patch"`
-}
+// Diff 타입은 common 패키지로 이동했습니다.
+// 하위 호환성을 위해 타입 별칭 제공
+type Diff = common.Diff
 
 // EditFunc는 문서를 편집하는 함수 타입입니다.
 type EditFunc func(doc interface{}) (interface{}, error)
@@ -126,8 +120,8 @@ func (s *Storage) Update(ctx context.Context, collection string, id string, edit
 		result, err = s.db.Collection(collection).UpdateOne(
 			ctx,
 			bson.M{
-				"_id":           id,
-				s.versionField:  currentVersion,
+				"_id":          id,
+				s.versionField: currentVersion,
 			},
 			bson.M{"$set": updatedDoc},
 		)

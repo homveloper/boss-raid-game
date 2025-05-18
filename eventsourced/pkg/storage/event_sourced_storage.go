@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/yourusername/eventsourced/pkg/event"
+	"eventsourced/pkg/event"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -14,16 +15,16 @@ import (
 
 // EventSourcedStorage는 이벤트 소싱 기능이 추가된 Storage입니다.
 type EventSourcedStorage struct {
-	*Storage                // 기존 Storage 임베딩
+	*Storage                      // 기존 Storage 임베딩
 	eventBus    event.EventBus    // 이벤트 발행을 위한 이벤트 버스
 	eventMapper event.EventMapper // 문서 변경을 이벤트로 매핑하는 매퍼
 }
 
 // EventSourcedStorageOptions는 EventSourcedStorage 생성 옵션입니다.
 type EventSourcedStorageOptions struct {
-	StorageOptions *StorageOptions // 기존 Storage 옵션
-	EventBus       event.EventBus        // 이벤트 버스
-	EventMapper    event.EventMapper     // 이벤트 매퍼
+	StorageOptions *StorageOptions   // 기존 Storage 옵션
+	EventBus       event.EventBus    // 이벤트 버스
+	EventMapper    event.EventMapper // 이벤트 매퍼
 }
 
 // NewEventSourcedStorage는 새로운 EventSourcedStorage를 생성합니다.
@@ -41,13 +42,13 @@ func NewEventSourcedStorage(ctx context.Context, client *mongo.Client, dbName st
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// EventMapper가 제공되지 않은 경우 기본 매퍼 사용
 	eventMapper := opts.EventMapper
 	if eventMapper == nil {
 		eventMapper = event.NewDefaultEventMapper()
 	}
-	
+
 	return &EventSourcedStorage{
 		Storage:     storage,
 		eventBus:    opts.EventBus,
@@ -62,7 +63,7 @@ func (s *EventSourcedStorage) Update(ctx context.Context, collection string, id 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 업데이트 성공 시 이벤트 매핑 및 발행
 	events := s.eventMapper.MapToEvents(collection, id, diff)
 	for _, evt := range events {
@@ -71,7 +72,7 @@ func (s *EventSourcedStorage) Update(ctx context.Context, collection string, id 
 			log.Printf("Failed to publish event: %v", err)
 		}
 	}
-	
+
 	return diff, nil
 }
 
@@ -83,13 +84,13 @@ func (s *EventSourcedStorage) FindOneAndUpdate(ctx context.Context, collection s
 		// ID를 추출할 수 없는 경우 기본 동작 수행
 		return s.Storage.FindOneAndUpdate(ctx, collection, filter, update, opts...)
 	}
-	
+
 	// 업데이트 전 문서 버전 조회
 	oldVersion, _ := s.GetVersion(ctx, collection, id)
-	
+
 	// 기본 Storage의 FindOneAndUpdate 호출
 	result := s.Storage.FindOneAndUpdate(ctx, collection, filter, update, opts...)
-	
+
 	// 업데이트 성공 여부 확인
 	var updatedDoc bson.M
 	err = result.Decode(&updatedDoc)
@@ -97,7 +98,7 @@ func (s *EventSourcedStorage) FindOneAndUpdate(ctx context.Context, collection s
 		// 업데이트 실패 또는 문서가 없는 경우
 		return result
 	}
-	
+
 	// Diff 생성
 	diff := &Diff{
 		ID:         id,
@@ -107,7 +108,7 @@ func (s *EventSourcedStorage) FindOneAndUpdate(ctx context.Context, collection s
 		Version:    oldVersion + 1,
 		MergePatch: update,
 	}
-	
+
 	// 이벤트 매핑 및 발행
 	events := s.eventMapper.MapToEvents(collection, id, diff)
 	for _, evt := range events {
@@ -116,7 +117,7 @@ func (s *EventSourcedStorage) FindOneAndUpdate(ctx context.Context, collection s
 			log.Printf("Failed to publish event: %v", err)
 		}
 	}
-	
+
 	return result
 }
 
@@ -128,21 +129,21 @@ func (s *EventSourcedStorage) FindOneAndUpsert(ctx context.Context, collection s
 		// ID를 추출할 수 없는 경우 기본 동작 수행
 		return s.Storage.FindOneAndUpsert(ctx, collection, filter, update, opts...)
 	}
-	
+
 	// 문서 존재 여부 확인
 	var existingDoc bson.M
 	err = s.Storage.FindOne(ctx, collection, filter).Decode(&existingDoc)
 	isNew := err == mongo.ErrNoDocuments
-	
+
 	// 업데이트 전 문서 버전 조회
 	oldVersion := 0
 	if !isNew {
 		oldVersion, _ = s.GetVersion(ctx, collection, id)
 	}
-	
+
 	// 기본 Storage의 FindOneAndUpsert 호출
 	result := s.Storage.FindOneAndUpsert(ctx, collection, filter, update, opts...)
-	
+
 	// 업서트 성공 여부 확인
 	var upsertedDoc bson.M
 	err = result.Decode(&upsertedDoc)
@@ -150,7 +151,7 @@ func (s *EventSourcedStorage) FindOneAndUpsert(ctx context.Context, collection s
 		// 업서트 실패
 		return result
 	}
-	
+
 	// Diff 생성
 	diff := &Diff{
 		ID:         id,
@@ -160,7 +161,7 @@ func (s *EventSourcedStorage) FindOneAndUpsert(ctx context.Context, collection s
 		Version:    oldVersion + 1,
 		MergePatch: update,
 	}
-	
+
 	// 이벤트 매핑 및 발행
 	events := s.eventMapper.MapToEvents(collection, id, diff)
 	for _, evt := range events {
@@ -169,7 +170,7 @@ func (s *EventSourcedStorage) FindOneAndUpsert(ctx context.Context, collection s
 			log.Printf("Failed to publish event: %v", err)
 		}
 	}
-	
+
 	return result
 }
 
@@ -185,6 +186,6 @@ func extractID(filter interface{}) (string, error) {
 			return fmt.Sprintf("%v", id), nil
 		}
 	}
-	
+
 	return "", errors.New("could not extract ID from filter")
 }
