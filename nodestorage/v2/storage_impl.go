@@ -313,13 +313,7 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		if err != nil {
 			// this err maybe business logic error, so we don't retry
 			// and return directly
-			return empty, nil, err
-		}
-
-		// Increment version
-		newVersion := currentVersion + 1
-		if err := setVersion(updatedDoc, versionField, newVersion); err != nil {
-			return empty, nil, fmt.Errorf("failed to set new version: %w", err)
+			return docCopy, nil, err
 		}
 
 		// Generate diff
@@ -327,7 +321,6 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 		if err != nil {
 			return empty, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
-		diff.Version = newVersion
 
 		// If there are no changes, return the original document copy without updating the database
 		if !diff.HasChanges {
@@ -337,6 +330,13 @@ func (s *StorageImpl[T]) FindOneAndUpdate(
 			}
 			return docCopy, diff, nil
 		}
+
+		// Increment version
+		newVersion := currentVersion + 1
+		if err := setVersion(updatedDoc, versionField, newVersion); err != nil {
+			return empty, nil, fmt.Errorf("failed to set new version: %w", err)
+		}
+		diff.Version = newVersion
 
 		// Update in database with version check
 		// If BsonPatchV2 or BsonPatch is available, use it for more efficient updates

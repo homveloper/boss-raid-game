@@ -228,6 +228,10 @@ github.com/jbenet/goprocess v0.1.4 h1:DRGOFReOMqqDNXwW70QkacFW0YN9QnwLV0Vqk+3oU0
 github.com/jbenet/goprocess v0.1.4/go.mod h1:5yspPrukOVuOLORacaBi858NqyClJPQxYZlqdZVfqY4=
 github.com/jellevandenhooff/dkim v0.0.0-20150330215556-f50fe3d243e1/go.mod h1:E0B/fFc00Y+Rasa88328GlI/XbtyysCtTHZS8h7IrBU=
 github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
+github.com/jetbasrawi/go.geteventstore v1.0.0 h1:eRICKjH59qET0lQG5pOPllWgLiOLdeLOaOR78Y3iM6c=
+github.com/jetbasrawi/go.geteventstore v1.0.0/go.mod h1:lEkGcCQHpZLkhgu7OEMyNnl65l7K9NoaOeQljpTRaek=
+github.com/jetbasrawi/go.geteventstore.testfeed v0.0.0-20160808110805-4e3be493c211 h1:HtXdY6vd2Th6bQQxxzpVJznZPRyYD+lIPPvf5i8cV+A=
+github.com/jetbasrawi/go.geteventstore.testfeed v0.0.0-20160808110805-4e3be493c211/go.mod h1:Nut6E2/rQQ1PF+alpAJ2nckmkjshphzVNETz1XxE/CI=
 github.com/jinzhu/copier v0.4.0 h1:w3ciUoD19shMCRargcpm0cm91ytaBhDvuRpz1ODO/U8=
 github.com/jinzhu/copier v0.4.0/go.mod h1:DfbEm0FYsaqBcKcFuvmOZb218JkPGtvSHsKg8S8hyyg=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=

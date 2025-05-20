@@ -174,6 +174,8 @@ require (
 	github.com/ipfs/go-datastore v0.8.2
 	github.com/ipfs/go-ds-crdt v0.6.5
 	github.com/ipfs/go-merkledag v0.11.0
+	github.com/jetbasrawi/go.geteventstore v1.0.0
+	github.com/jetbasrawi/go.geteventstore.testfeed v0.0.0-20160808110805-4e3be493c211
 	github.com/pkg/errors v0.9.1
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.mongodb.org/mongo-driver v1.17.3
