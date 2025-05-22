@@ -14,34 +14,39 @@ flowchart TB
         Client["클라이언트\n(웹/모바일)"]
     end
 
-    subgraph "API 게이트웨이"
-        Gateway["API 게이트웨이"]
-        WSGateway["WebSocket 게이트웨이"]
-    end
+    subgraph "서버 계층 (3-Tier 아키텍처)"
+        subgraph "프레젠테이션 계층"
+            RPCController["RPC 컨트롤러"]
+            WSGateway["WebSocket 게이트웨이"]
+        end
 
-    subgraph "명령 처리 계층"
-        CommandAPI["명령 API 서비스"]
-        CommandHandler["명령 핸들러"]
-        EventStore["이벤트 저장소"]
-    end
+        subgraph "비즈니스 로직 계층"
+            GameService["게임 서비스"]
+            AdminService["운영툴 서비스"]
 
-    subgraph "쿼리 처리 계층"
-        QueryAPI["쿼리 API 서비스"]
-        ReadModel["읽기 모델"]
-        Projector["프로젝터"]
-    end
+            subgraph "GuildMineCQRS 서비스"
+                CommandBus["명령 버스"]
+                QueryBus["쿼리 버스"]
+                CommandHandler["명령 핸들러"]
+                QueryHandler["쿼리 핸들러"]
+                EventStore["이벤트 저장소"]
+                EventBus["이벤트 버스"]
+                EventHandler["이벤트 핸들러"]
+                Projector["프로젝터"]
 
-    subgraph "도메인 서비스"
-        MineService["광산 서비스"]
-        TransportService["이송 서비스"]
-        RaidService["약탈 서비스"]
-        GeneralService["장수 서비스"]
-    end
+                subgraph "도메인 모델"
+                    MineAggregate["광산 애그리게이트"]
+                    TransportAggregate["이송 애그리게이트"]
+                    RaidAggregate["약탈 애그리게이트"]
+                end
+            end
+        end
 
-    subgraph "이벤트 처리 계층"
-        EventBus["이벤트 버스"]
-        EventProcessor["이벤트 프로세서"]
-        Notifier["알림 서비스"]
+        subgraph "데이터 액세스 계층"
+            Repository["리포지토리"]
+            ReadModel["읽기 모델"]
+            Notifier["알림 서비스"]
+        end
     end
 
     subgraph "저장소 계층"
@@ -49,81 +54,92 @@ flowchart TB
         Redis[(Redis)]
     end
 
-    %% 클라이언트와 게이트웨이 연결
-    Client <--> Gateway
+    %% 클라이언트와 서버 연결
+    Client <--> RPCController
     Client <--> WSGateway
 
-    %% 게이트웨이와 API 서비스 연결
-    Gateway --> CommandAPI
-    Gateway --> QueryAPI
+    %% 프레젠테이션 계층과 비즈니스 로직 계층 연결
+    RPCController --> GameService
+    RPCController --> AdminService
     WSGateway <--> Notifier
 
-    %% 명령 처리 흐름
-    CommandAPI --> CommandHandler
-    CommandHandler --> MineService
-    CommandHandler --> TransportService
-    CommandHandler --> RaidService
-    CommandHandler --> GeneralService
+    %% 서비스와 CQRS 연결
+    GameService --> GuildMineCQRS
+    AdminService --> GuildMineCQRS
+
+    %% CQRS 내부 연결
+    CommandBus --> CommandHandler
+    QueryBus --> QueryHandler
+    CommandHandler --> MineAggregate
+    CommandHandler --> TransportAggregate
+    CommandHandler --> RaidAggregate
     CommandHandler --> EventStore
-
-    %% 이벤트 처리 흐름
     EventStore --> EventBus
-    EventBus --> EventProcessor
+    EventBus --> EventHandler
     EventBus --> Projector
-    EventProcessor --> Notifier
+    EventHandler --> Notifier
 
-    %% 쿼리 처리 흐름
-    QueryAPI --> ReadModel
-
-    %% 도메인 서비스 연결
-    MineService <--> TransportService
-    TransportService <--> RaidService
-    MineService <--> GeneralService
-
-    %% 저장소 연결
-    EventStore --> MongoDB
+    %% 데이터 액세스 계층 연결
+    Repository --> MongoDB
     ReadModel --> MongoDB
-    EventProcessor --> Redis
-    Notifier --> Redis
-
-    %% 프로젝터와 읽기 모델 연결
     Projector --> ReadModel
+    Notifier --> Redis
 
     %% 스타일 정의
     classDef client fill:#f9f,stroke:#333,stroke-width:2px
-    classDef gateway fill:#bbf,stroke:#333,stroke-width:2px
-    classDef command fill:#bfb,stroke:#333,stroke-width:2px
-    classDef query fill:#fbf,stroke:#333,stroke-width:2px
+    classDef presentation fill:#bbf,stroke:#333,stroke-width:2px
+    classDef business fill:#bfb,stroke:#333,stroke-width:2px
+    classDef cqrs fill:#fbf,stroke:#333,stroke-width:2px
     classDef domain fill:#fbb,stroke:#333,stroke-width:2px
-    classDef event fill:#bff,stroke:#333,stroke-width:2px
+    classDef dataaccess fill:#bff,stroke:#333,stroke-width:2px
     classDef storage fill:#bbb,stroke:#333,stroke-width:2px
 
     %% 스타일 적용
     class Client client
-    class Gateway,WSGateway gateway
-    class CommandAPI,CommandHandler,EventStore command
-    class QueryAPI,ReadModel,Projector query
-    class MineService,TransportService,RaidService,GeneralService domain
-    class EventBus,EventProcessor,Notifier event
+    class RPCController,WSGateway presentation
+    class GameService,AdminService business
+    class CommandBus,QueryBus,CommandHandler,QueryHandler,EventStore,EventBus,EventHandler,Projector cqrs
+    class MineAggregate,TransportAggregate,RaidAggregate domain
+    class Repository,ReadModel,Notifier dataaccess
     class MongoDB,Redis storage
 ```
 
-### 2.2 CQRS 핵심 컴포넌트
+### 2.2 3-Tier 아키텍처와 CQRS 통합
+
+이 설계는 전통적인 3-Tier 아키텍처(프레젠테이션, 비즈니스 로직, 데이터 액세스)와 CQRS 패턴을 통합한 형태입니다. GuildMineCQRS 서비스는 비즈니스 로직 계층에 위치하며, 게임 서버와 운영툴 서버 모두에서 재사용 가능한 독립적인 서비스로 구현됩니다.
+
+1. **프레젠테이션 계층**
+   - RPC 컨트롤러: 클라이언트 요청을 처리하고 적절한 서비스로 라우팅
+   - WebSocket 게이트웨이: 실시간 양방향 통신 제공
+
+2. **비즈니스 로직 계층**
+   - 게임 서비스: 게임 서버의 비즈니스 로직 처리
+   - 운영툴 서비스: 관리자 도구의 비즈니스 로직 처리
+   - GuildMineCQRS 서비스: 금광 이송 및 약탈 관련 명령/쿼리 처리
+
+3. **데이터 액세스 계층**
+   - 리포지토리: 데이터 영속성 처리
+   - 읽기 모델: 최적화된 쿼리 모델
+   - 알림 서비스: 실시간 이벤트 알림
+
+### 2.3 CQRS 핵심 컴포넌트
 
 1. **명령 측(Command Side)**
-   - 상태 변경을 담당하는 명령 처리 계층
-   - 이벤트 소싱을 통한 상태 변경 기록
-   - 도메인 로직 및 유효성 검증
+   - 명령 버스: 명령을 적절한 핸들러로 라우팅
+   - 명령 핸들러: 비즈니스 규칙 적용 및 상태 변경
+   - 애그리게이트: 도메인 모델의 일관성 경계
+   - 이벤트 저장소: 상태 변경 이벤트 저장
 
 2. **쿼리 측(Query Side)**
-   - 데이터 조회를 담당하는 쿼리 처리 계층
-   - 최적화된 읽기 모델(Read Model)
-   - 프로젝션을 통한 읽기 모델 업데이트
+   - 쿼리 버스: 쿼리를 적절한 핸들러로 라우팅
+   - 쿼리 핸들러: 읽기 모델에서 데이터 조회
+   - 읽기 모델: 조회 최적화된 데이터 구조
+   - 프로젝터: 이벤트를 읽기 모델로 변환
 
-3. **이벤트 버스(Event Bus)**
-   - 이벤트 발행 및 구독 관리
-   - Redis Streams를 활용한 이벤트 전파
-   - 실시간 알림 및 동기화
+3. **이벤트 처리(Event Processing)**
+   - 이벤트 버스: 이벤트 발행 및 구독 관리
+   - 이벤트 핸들러: 이벤트에 대한 부수 효과 처리
+   - 알림 서비스: 실시간 알림 및 동기화
 
 ## 3. 도메인 모델
 
@@ -194,7 +210,54 @@ classDiagram
     TransportAggregate --> TransportCart : uses
 ```
 
-### 3.2 약탈 도메인 모델 (go.cqrs 기반)
+### 3.2 이송 모집 도메인 모델 (상태 기반)
+
+이송 모집은 이벤트 소싱 대신 상태 기반 모델을 사용하여 실시간 참가자 동기화와 상태 변경을 효율적으로 처리합니다.
+
+```mermaid
+classDiagram
+    class TransportRecruitment {
+        +ID string
+        +AllianceID string
+        +Status TransportRecruitStatus
+        +MaxParticipants int
+        +CurrentParticipants int
+        +Participants []Participant
+        +StartTime time.Time
+        +ExpiryTime time.Time
+        +DepartureTime *time.Time
+        +MineID string
+        +CartCount int
+        +Version int
+        +Create(allianceID, playerID, generalID, mineID string, maxParticipants, cartCount int)
+        +Join(playerID, generalID string)
+        +Leave(playerID string)
+        +Cancel()
+        +Depart()
+        +Expire()
+    }
+
+    class TransportRecruitStatus {
+        <<enumeration>>
+        CREATED
+        ACTIVE
+        FULL
+        EXPIRED
+        DEPARTED
+        CANCELED
+    }
+
+    class Participant {
+        +PlayerID string
+        +GeneralID string
+        +JoinedAt time.Time
+    }
+
+    TransportRecruitment --> TransportRecruitStatus
+    TransportRecruitment --> Participant : contains
+```
+
+### 3.3 약탈 도메인 모델 (go.cqrs 기반)
 
 ```mermaid
 classDiagram
@@ -384,7 +447,9 @@ func (c *CreateTransportCommand) CommandType() string   { return "CreateTranspor
 ```mermaid
 sequenceDiagram
     participant Client as 클라이언트
-    participant API as API 게이트웨이
+    participant RPCController as RPC 컨트롤러
+    participant GameService as 게임 서비스
+    participant GuildMineCQRS as GuildMineCQRS 서비스
     participant Dispatcher as ycq.Dispatcher
     participant CommandHandler as ycq.CommandHandler
     participant Repository as ycq.Repository
@@ -393,9 +458,13 @@ sequenceDiagram
     participant EventBus as ycq.EventBus
     participant MongoDB as MongoDB
 
-    Client->>API: 명령 요청 (이송 시작)
-    API->>Dispatcher: 명령 전달
-    Dispatcher->>CommandHandler: 명령 라우팅
+    Client->>RPCController: 명령 요청 (이송 시작)
+    RPCController->>RPCController: 인증 및 권한 검증
+    RPCController->>GameService: 서비스 메서드 호출
+    GameService->>GameService: 비즈니스 규칙 검증
+    GameService->>GuildMineCQRS: 명령 전달
+    GuildMineCQRS->>Dispatcher: 명령 라우팅
+    Dispatcher->>CommandHandler: 명령 핸들러 호출
 
     CommandHandler->>Repository: 애그리게이트 로드
     Repository->>EventStore: 이벤트 스트림 조회
@@ -437,6 +506,8 @@ sequenceDiagram
     participant Notifier as 알림 서비스
     participant WSGateway as WebSocket 게이트웨이
     participant Client as 클라이언트
+    participant GameService as 게임 서비스
+    participant AdminService as 운영툴 서비스
     participant MongoDB as MongoDB
     participant Redis as Redis
 
@@ -448,6 +519,8 @@ sequenceDiagram
         EventHandler->>Redis: 실시간 상태 업데이트
         Redis-->>EventHandler: 업데이트 확인
         EventHandler->>Notifier: 알림 생성
+        EventHandler->>GameService: 게임 서비스 알림 (선택적)
+        EventHandler->>AdminService: 운영툴 서비스 알림 (선택적)
 
         Note over Notifier: 그룹 기반 알림 처리
         Notifier->>Notifier: 대상 그룹 식별 (AllianceID)
@@ -489,14 +562,64 @@ sequenceDiagram
     end
 ```
 
-## 5. 주요 시나리오 시퀀스 다이어그램
+## 5. 구현 계획
 
-### 5.1 go.cqrs 기반 이송 프로세스 시퀀스 다이어그램
+### 5.1 단계별 구현 계획
+
+1. **기반 구조 구축** (1주)
+   - 3-Tier 아키텍처 내 CQRS 서비스 설계
+   - CQRS 프레임워크 설정
+   - 이벤트 저장소 구현
+   - 명령/쿼리 버스 구현
+   - 이벤트 버스 구현
+
+2. **도메인 모델 구현** (1주)
+   - 광산 애그리게이트 구현
+   - 이송 애그리게이트 구현
+   - 약탈 애그리게이트 구현
+   - 장수 관리 기능 구현
+
+3. **GuildMineCQRS 서비스 구현** (2주)
+   - 서비스 인터페이스 정의
+   - 명령 핸들러 구현
+   - 쿼리 핸들러 구현
+   - 이벤트 핸들러 구현
+   - 유효성 검증 및 비즈니스 규칙 구현
+
+4. **게임 서비스 통합** (1주)
+   - 게임 서비스 내 GuildMineCQRS 서비스 통합
+   - 비즈니스 로직 연동
+   - 권한 검증 및 유효성 검사 구현
+   - 서비스 간 통신 최적화
+
+5. **운영툴 서비스 통합** (1주)
+   - 운영툴 서비스 내 GuildMineCQRS 서비스 통합
+   - 관리자 기능 구현
+   - 모니터링 및 로깅 기능 구현
+   - 데이터 분석 기능 구현
+
+6. **RPC 컨트롤러 및 클라이언트 통합** (1주)
+   - RPC 컨트롤러 구현
+   - WebSocket 게이트웨이 구현
+   - 클라이언트 라이브러리 구현
+   - 인증 및 권한 관리 통합
+
+7. **테스트 및 최적화** (1주)
+   - 단위 테스트 작성
+   - 통합 테스트 작성
+   - 성능 테스트 및 최적화
+   - 부하 테스트 및 확장성 검증
+
+## 6. 주요 시나리오 시퀀스 다이어그램
+
+### 6.1 go.cqrs 기반 이송 프로세스 시퀀스 다이어그램
 
 ```mermaid
 sequenceDiagram
     participant Client as 클라이언트
-    participant API as API 게이트웨이
+    participant RPCController as RPC 컨트롤러
+    participant GameService as 게임 서비스
+    participant GuildMineCQRS as GuildMineCQRS 서비스
     participant Dispatcher as ycq.Dispatcher
     participant CommandHandler as ycq.CommandHandler
     participant Repository as ycq.Repository
@@ -511,9 +634,13 @@ sequenceDiagram
     participant Worker as 백그라운드 워커
 
     %% 1. 이송 준비
-    Client->>API: 이송 준비 요청 (CreateTransportCommand)
-    API->>Dispatcher: 명령 전달
-    Dispatcher->>CommandHandler: 명령 라우팅
+    Client->>RPCController: 이송 준비 요청
+    RPCController->>RPCController: 인증 및 권한 검증
+    RPCController->>GameService: 이송 준비 메서드 호출
+    GameService->>GameService: 비즈니스 규칙 검증
+    GameService->>GuildMineCQRS: CreateTransportCommand 전달
+    GuildMineCQRS->>Dispatcher: 명령 라우팅
+    Dispatcher->>CommandHandler: 명령 핸들러 호출
 
     CommandHandler->>Repository: 새 애그리게이트 생성
     Repository->>TransportAggregate: 생성
@@ -582,6 +709,8 @@ sequenceDiagram
 
     par 이벤트 처리
         EventHandler->>Notifier: 알림 생성
+        EventHandler->>GameService: 게임 서비스 알림 (선택적)
+        EventHandler->>AdminService: 운영툴 서비스 알림 (선택적)
         Notifier->>WSGateway: 이송 시작 알림
         WSGateway->>Client: 실시간 알림 (그룹 멤버에게)
     and 프로젝션 처리
@@ -594,8 +723,10 @@ sequenceDiagram
     end
 
     CommandHandler-->>Dispatcher: 명령 처리 결과
-    Dispatcher-->>API: 명령 처리 결과
-    API-->>Client: 이송 시작 응답
+    Dispatcher-->>GuildMineCQRS: 명령 처리 결과
+    GuildMineCQRS-->>GameService: 명령 처리 결과
+    GameService-->>RPCController: 명령 처리 결과
+    RPCController-->>Client: 이송 시작 응답
 
     %% 3. 이송 완료 (백그라운드 처리)
     Note over Worker: 주기적 실행 (모든 서버 노드)
@@ -633,6 +764,8 @@ sequenceDiagram
 
     par 이벤트 처리
         EventHandler->>Notifier: 알림 생성
+        EventHandler->>GameService: 게임 서비스 알림 (선택적)
+        EventHandler->>AdminService: 운영툴 서비스 알림 (선택적)
         Notifier->>WSGateway: 이송 완료 알림
         WSGateway->>Client: 실시간 알림 (그룹 멤버에게)
     and 프로젝션 처리
@@ -645,13 +778,123 @@ sequenceDiagram
     Redis-->>Worker: 제거 확인
 ```
 
-### 5.2 go.cqrs 기반 약탈 프로세스 시퀀스 다이어그램
+### 6.2 상태 기반 이송 모집 프로세스 시퀀스 다이어그램
+
+```mermaid
+sequenceDiagram
+    participant Client as 클라이언트
+    participant RPCController as RPC 컨트롤러
+    participant GameService as 게임 서비스
+    participant RecruitmentService as 이송 모집 서비스
+    participant Repository as 리포지토리
+    participant MongoDB as MongoDB
+    participant Notifier as 알림 서비스
+    participant Redis as Redis
+    participant WSGateway as WebSocket 게이트웨이
+    participant OtherClients as 다른 클라이언트
+    participant GuildMineCQRS as GuildMineCQRS 서비스
+    participant Worker as 백그라운드 워커
+
+    %% 1. 이송 모집 생성
+    Client->>RPCController: 이송 모집 생성 요청
+    RPCController->>RPCController: 인증 및 권한 검증
+    RPCController->>GameService: 이송 모집 생성 메서드 호출
+    GameService->>GameService: 비즈니스 규칙 검증
+    GameService->>RecruitmentService: CreateRecruitment 호출
+
+    RecruitmentService->>RecruitmentService: 모집 객체 생성
+    RecruitmentService->>Repository: 모집 저장
+    Repository->>MongoDB: 데이터 저장
+    MongoDB-->>Repository: 저장 확인
+    Repository-->>RecruitmentService: 저장 결과
+
+    RecruitmentService->>Notifier: 모집 생성 알림
+    Notifier->>Redis: 그룹 채널에 알림 발행
+    Redis-->>Notifier: 발행 확인
+    Notifier->>WSGateway: 실시간 알림 전송
+    WSGateway->>OtherClients: 이송 모집 생성 알림
+
+    RecruitmentService-->>GameService: 모집 생성 결과
+    GameService-->>RPCController: 모집 생성 결과
+    RPCController-->>Client: 이송 모집 생성 응답
+
+    %% 2. 이송 모집 참가
+    OtherClients->>RPCController: 이송 모집 참가 요청
+    RPCController->>RPCController: 인증 및 권한 검증
+    RPCController->>GameService: 이송 모집 참가 메서드 호출
+    GameService->>RecruitmentService: JoinRecruitment 호출
+
+    RecruitmentService->>Repository: 모집 조회
+    Repository->>MongoDB: 데이터 조회
+    MongoDB-->>Repository: 모집 데이터
+    Repository-->>RecruitmentService: 모집 객체
+
+    RecruitmentService->>RecruitmentService: 참가 가능 여부 검증
+    RecruitmentService->>Repository: 참가자 추가 및 상태 업데이트
+    Repository->>MongoDB: 낙관적 동시성 제어로 업데이트
+    MongoDB-->>Repository: 업데이트 결과
+    Repository-->>RecruitmentService: 업데이트 결과
+
+    RecruitmentService->>Notifier: 참가자 추가 알림
+    Notifier->>Redis: 그룹 채널에 알림 발행
+    Redis-->>Notifier: 발행 확인
+    Notifier->>WSGateway: 실시간 알림 전송
+    WSGateway->>Client: 참가자 추가 알림
+    WSGateway->>OtherClients: 참가자 추가 알림
+
+    RecruitmentService-->>GameService: 참가 결과
+    GameService-->>RPCController: 참가 결과
+    RPCController-->>OtherClients: 이송 모집 참가 응답
+
+    %% 3. 이송 모집 출발 (인원 가득참)
+    RecruitmentService->>RecruitmentService: 인원 가득참 확인
+    RecruitmentService->>Repository: 상태 변경 (FULL -> DEPARTED)
+    Repository->>MongoDB: 상태 업데이트
+    MongoDB-->>Repository: 업데이트 결과
+    Repository-->>RecruitmentService: 업데이트 결과
+
+    RecruitmentService->>Notifier: 모집 출발 알림
+    Notifier->>Redis: 그룹 채널에 알림 발행
+    Redis-->>Notifier: 발행 확인
+    Notifier->>WSGateway: 실시간 알림 전송
+    WSGateway->>Client: 모집 출발 알림
+    WSGateway->>OtherClients: 모집 출발 알림
+
+    RecruitmentService->>GuildMineCQRS: 각 참가자별 이송 시작 명령 생성
+
+    %% 4. 만료 처리 (백그라운드)
+    Worker->>Worker: 주기적 실행
+    Worker->>Repository: 만료된 모집 조회
+    Repository->>MongoDB: 만료 조건 쿼리
+    MongoDB-->>Repository: 만료된 모집 목록
+    Repository-->>Worker: 만료된 모집 목록
+
+    Worker->>RecruitmentService: 만료 처리 요청
+    RecruitmentService->>Repository: 상태 변경 (ACTIVE -> EXPIRED/DEPARTED)
+    Repository->>MongoDB: 상태 업데이트
+    MongoDB-->>Repository: 업데이트 결과
+    Repository-->>RecruitmentService: 업데이트 결과
+
+    RecruitmentService->>Notifier: 모집 만료/출발 알림
+    Notifier->>Redis: 그룹 채널에 알림 발행
+    Redis-->>Notifier: 발행 확인
+    Notifier->>WSGateway: 실시간 알림 전송
+    WSGateway->>Client: 모집 만료/출발 알림
+    WSGateway->>OtherClients: 모집 만료/출발 알림
+
+    RecruitmentService->>GuildMineCQRS: 참가자가 있는 경우 이송 시작 명령 생성
+```
+
+### 6.3 go.cqrs 기반 약탈 프로세스 시퀀스 다이어그램
 
 ```mermaid
 sequenceDiagram
     participant Client as 공격자 클라이언트
     participant DefClient as 방어자 클라이언트
-    participant API as API 게이트웨이
+    participant RPCController as RPC 컨트롤러
+    participant GameService as 게임 서비스
+    participant AdminService as 운영툴 서비스
+    participant GuildMineCQRS as GuildMineCQRS 서비스
     participant Dispatcher as ycq.Dispatcher
     participant RaidHandler as 약탈 커맨드 핸들러
     participant DefenseHandler as 방어 커맨드 핸들러
@@ -669,8 +912,12 @@ sequenceDiagram
     participant Worker as 백그라운드 워커
 
     %% 1. 약탈 시작
-    Client->>API: 약탈 요청 (CreateRaidCommand)
-    API->>Dispatcher: 명령 전달
+    Client->>RPCController: 약탈 요청
+    RPCController->>RPCController: 인증 및 권한 검증
+    RPCController->>GameService: 약탈 메서드 호출
+    GameService->>GameService: 비즈니스 규칙 검증
+    GameService->>GuildMineCQRS: CreateRaidCommand 전달
+    GuildMineCQRS->>Dispatcher: 명령 라우팅
     Dispatcher->>RaidHandler: 명령 라우팅
 
     RaidHandler->>ReadModel: 이송 중인 대상 조회
@@ -700,6 +947,8 @@ sequenceDiagram
 
     par 이벤트 처리
         EventHandler->>Notifier: 알림 생성
+        EventHandler->>GameService: 게임 서비스 알림 (선택적)
+        EventHandler->>AdminService: 운영툴 서비스 알림 (선택적)
         Notifier->>Notifier: 대상 그룹 식별 (공격자/방어자 연합)
         Notifier->>WSGateway: 약탈 시작 알림
         WSGateway->>Client: 실시간 알림 (공격자 연합)
@@ -714,12 +963,18 @@ sequenceDiagram
     end
 
     RaidHandler-->>Dispatcher: 명령 처리 결과
-    Dispatcher-->>API: 명령 처리 결과
-    API-->>Client: 약탈 시작 응답
+    Dispatcher-->>GuildMineCQRS: 명령 처리 결과
+    GuildMineCQRS-->>GameService: 명령 처리 결과
+    GameService-->>RPCController: 명령 처리 결과
+    RPCController-->>Client: 약탈 시작 응답
 
     %% 2. 방어 시작
-    DefClient->>API: 방어 요청 (CreateDefenseCommand)
-    API->>Dispatcher: 명령 전달
+    DefClient->>RPCController: 방어 요청
+    RPCController->>RPCController: 인증 및 권한 검증
+    RPCController->>GameService: 방어 메서드 호출
+    GameService->>GameService: 비즈니스 규칙 검증
+    GameService->>GuildMineCQRS: CreateDefenseCommand 전달
+    GuildMineCQRS->>Dispatcher: 명령 라우팅
     Dispatcher->>DefenseHandler: 명령 라우팅
 
     DefenseHandler->>ReadModel: 약탈 정보 조회
@@ -749,6 +1004,8 @@ sequenceDiagram
 
     par 이벤트 처리
         EventHandler->>Notifier: 알림 생성
+        EventHandler->>GameService: 게임 서비스 알림 (선택적)
+        EventHandler->>AdminService: 운영툴 서비스 알림 (선택적)
         Notifier->>Notifier: 대상 그룹 식별 (공격자/방어자 연합)
         Notifier->>WSGateway: 방어 시작 알림
         WSGateway->>DefClient: 실시간 알림 (방어자 연합)
@@ -760,8 +1017,10 @@ sequenceDiagram
     end
 
     DefenseHandler-->>Dispatcher: 명령 처리 결과
-    Dispatcher-->>API: 명령 처리 결과
-    API-->>DefClient: 방어 시작 응답
+    Dispatcher-->>GuildMineCQRS: 명령 처리 결과
+    GuildMineCQRS-->>GameService: 명령 처리 결과
+    GameService-->>RPCController: 명령 처리 결과
+    RPCController-->>DefClient: 방어 시작 응답
 
     %% 3. 약탈 결과 처리 (백그라운드 처리)
     Note over Worker: 주기적 실행 (모든 서버 노드)
@@ -917,9 +1176,9 @@ sequenceDiagram
     Redis-->>Worker: 제거 확인
 ```
 
-## 6. 기술적 구현 상세
+## 7. 기술적 구현 상세
 
-### 6.1 jetbasrawi/go.cqrs 라이브러리 활용
+### 7.1 jetbasrawi/go.cqrs 라이브러리 활용
 
 본 시스템은 [jetbasrawi/go.cqrs](https://github.com/jetbasrawi/go.cqrs) 라이브러리를 기반으로 구현됩니다. 이 라이브러리는 CQRS 패턴의 핵심 컴포넌트들을 제공하며, 우리의 분산 환경 요구사항에 맞게 확장하여 사용할 수 있습니다.
 
@@ -959,7 +1218,7 @@ func setupCQRSComponents() {
 }
 ```
 
-### 6.2 MongoDB 기반 이벤트 저장소 구현
+### 7.2 MongoDB 기반 이벤트 저장소 구현
 
 go.cqrs 라이브러리는 GetEventStore를 기본 저장소로 사용하지만, 우리는 MongoDB를 이벤트 저장소로 활용하기 위해 인터페이스를 구현합니다.
 
@@ -1051,7 +1310,7 @@ func (store *MongoEventStore) GetEvents(streamID string, fromVersion int) ([]ycq
 }
 ```
 
-### 6.3 Redis 기반 이벤트 버스 구현
+### 7.3 Redis 기반 이벤트 버스 구현
 
 분산 환경에서의 이벤트 전파를 위해 Redis Streams를 활용한 이벤트 버스를 구현합니다.
 
@@ -1172,7 +1431,255 @@ func (bus *RedisEventBus) processEvents() {
 }
 ```
 
-### 6.4 프로젝터 구현
+### 7.4 이송 모집 서비스 구현
+
+이송 모집 기능은 이벤트 소싱 대신 상태 기반 모델을 사용하여 구현합니다. 이는 실시간 참가자 동기화와 같은 빈번한 상태 변경에 더 효율적입니다.
+
+#### 7.4.1 이송 모집 리포지토리
+
+```go
+// TransportRecruitmentRepository 인터페이스
+type TransportRecruitmentRepository interface {
+    Create(ctx context.Context, recruitment *TransportRecruitment) error
+    FindByID(ctx context.Context, id string) (*TransportRecruitment, error)
+    FindActiveByAllianceID(ctx context.Context, allianceID string) ([]*TransportRecruitment, error)
+    Update(ctx context.Context, recruitment *TransportRecruitment) error
+    Delete(ctx context.Context, id string) error
+}
+
+// MongoDB 구현체
+type MongoTransportRecruitmentRepository struct {
+    collection *mongo.Collection
+}
+
+func NewMongoTransportRecruitmentRepository(db *mongo.Database) *MongoTransportRecruitmentRepository {
+    collection := db.Collection("transport_recruitments")
+
+    // 인덱스 생성
+    indexModels := []mongo.IndexModel{
+        {
+            Keys: bson.D{{"allianceId", 1}, {"status", 1}},
+            Options: options.Index().SetBackground(true),
+        },
+        {
+            Keys: bson.D{{"status", 1}, {"expiryTime", 1}},
+            Options: options.Index().SetBackground(true),
+        },
+    }
+
+    _, err := collection.Indexes().CreateMany(context.Background(), indexModels)
+    if err != nil {
+        log.Printf("Failed to create indexes: %v", err)
+    }
+
+    return &MongoTransportRecruitmentRepository{
+        collection: collection,
+    }
+}
+
+// 낙관적 동시성 제어를 사용한 업데이트
+func (r *MongoTransportRecruitmentRepository) Update(ctx context.Context, recruitment *TransportRecruitment) error {
+    currentVersion := recruitment.Version
+    recruitment.Version++
+
+    result, err := r.collection.UpdateOne(
+        ctx,
+        bson.M{
+            "_id": recruitment.ID,
+            "version": currentVersion,
+        },
+        bson.M{
+            "$set": recruitment,
+        },
+    )
+
+    if err != nil {
+        return err
+    }
+
+    if result.MatchedCount == 0 {
+        return errors.New("concurrent modification detected")
+    }
+
+    return nil
+}
+```
+
+#### 7.4.2 이송 모집 서비스
+
+```go
+// TransportRecruitmentService 인터페이스
+type TransportRecruitmentService interface {
+    CreateRecruitment(ctx context.Context, allianceID, playerID, generalID, mineID string, maxParticipants, cartCount int, expiryDuration time.Duration) (*TransportRecruitment, error)
+    JoinRecruitment(ctx context.Context, recruitmentID, playerID, generalID string) error
+    LeaveRecruitment(ctx context.Context, recruitmentID, playerID string) error
+    GetRecruitmentStatus(ctx context.Context, recruitmentID string) (*TransportRecruitment, error)
+    GetActiveRecruitments(ctx context.Context, allianceID string) ([]*TransportRecruitment, error)
+    CancelRecruitment(ctx context.Context, recruitmentID, playerID string) error
+}
+
+// 서비스 구현체
+type TransportRecruitmentServiceImpl struct {
+    repository TransportRecruitmentRepository
+    notifier   TransportRecruitmentNotifier
+    guildMineCQRS GuildMineCQRSService
+    maxRetries int
+}
+
+// 모집 참가 메서드 구현 (낙관적 동시성 제어)
+func (s *TransportRecruitmentServiceImpl) JoinRecruitment(ctx context.Context, recruitmentID, playerID, generalID string) error {
+    for i := 0; i < s.maxRetries; i++ {
+        recruitment, err := s.repository.FindByID(ctx, recruitmentID)
+        if err != nil {
+            return err
+        }
+
+        // 상태 검증
+        if recruitment.Status != RecruitmentActive {
+            return errors.New("recruitment is not active")
+        }
+
+        // 인원 검증
+        if recruitment.CurrentParticipants >= recruitment.MaxParticipants {
+            return errors.New("recruitment is already full")
+        }
+
+        // 중복 참가 검증
+        for _, p := range recruitment.Participants {
+            if p.PlayerID == playerID {
+                return errors.New("player already joined")
+            }
+        }
+
+        // 참가자 추가
+        newParticipant := Participant{
+            PlayerID:  playerID,
+            GeneralID: generalID,
+            JoinedAt:  time.Now(),
+        }
+        recruitment.Participants = append(recruitment.Participants, newParticipant)
+        recruitment.CurrentParticipants++
+
+        // 인원 가득 찼는지 확인
+        if recruitment.CurrentParticipants >= recruitment.MaxParticipants {
+            recruitment.Status = RecruitmentFull
+        }
+
+        // 저장 시도
+        err = s.repository.Update(ctx, recruitment)
+        if err == nil {
+            // 알림 발송
+            s.notifier.NotifyParticipantJoined(ctx, TransportRecruitmentEvent{
+                RecruitmentID:      recruitment.ID,
+                AllianceID:         recruitment.AllianceID,
+                EventType:          "PARTICIPANT_JOINED",
+                Status:             recruitment.Status,
+                CurrentParticipants: recruitment.CurrentParticipants,
+                MaxParticipants:    recruitment.MaxParticipants,
+                LastParticipant:    &newParticipant,
+                Timestamp:          time.Now(),
+            })
+
+            // 인원이 가득 찼으면 출발 처리
+            if recruitment.Status == RecruitmentFull {
+                go s.processDeparture(context.Background(), recruitment)
+            }
+
+            return nil
+        }
+
+        // 충돌 발생 시 재시도
+        if i == s.maxRetries-1 {
+            return errors.New("failed to join recruitment after retries")
+        }
+    }
+
+    return errors.New("unexpected error")
+}
+```
+
+#### 7.4.3 실시간 알림 시스템
+
+```go
+// TransportRecruitmentNotifier 인터페이스
+type TransportRecruitmentNotifier interface {
+    NotifyStatusChange(ctx context.Context, event TransportRecruitmentEvent) error
+    NotifyParticipantJoined(ctx context.Context, event TransportRecruitmentEvent) error
+    NotifyParticipantLeft(ctx context.Context, event TransportRecruitmentEvent) error
+    NotifyRecruitmentDeparted(ctx context.Context, event TransportRecruitmentEvent) error
+}
+
+// Redis 기반 구현체
+type RedisTransportRecruitmentNotifier struct {
+    redisClient *redis.Client
+}
+
+// 상태 변경 알림 구현
+func (n *RedisTransportRecruitmentNotifier) NotifyStatusChange(ctx context.Context, event TransportRecruitmentEvent) error {
+    // 그룹 채널에 이벤트 발행
+    groupChannel := fmt.Sprintf("alliance:%s:recruitment", event.AllianceID)
+    eventData, err := json.Marshal(event)
+    if err != nil {
+        return err
+    }
+
+    return n.redisClient.Publish(ctx, groupChannel, eventData).Err()
+}
+```
+
+#### 7.4.4 WebSocket 게이트웨이
+
+```go
+// TransportRecruitmentWSHandler 구조체
+type TransportRecruitmentWSHandler struct {
+    redisClient *redis.Client
+    sessions    map[string]*websocket.Conn
+    sessionsMu  sync.RWMutex
+    stopCh      chan struct{}
+}
+
+// Redis 구독 처리
+func (h *TransportRecruitmentWSHandler) subscribeToRedis() {
+    pubsub := h.redisClient.PSubscribe(context.Background(), "alliance:*:recruitment")
+    defer pubsub.Close()
+
+    for {
+        select {
+        case <-h.stopCh:
+            return
+        default:
+            msg, err := pubsub.ReceiveMessage(context.Background())
+            if err != nil {
+                log.Printf("Error receiving message: %v", err)
+                time.Sleep(time.Second)
+                continue
+            }
+
+            // 채널 패턴에서 alliance ID 추출
+            pattern := "alliance:(.*):recruitment"
+            re := regexp.MustCompile(pattern)
+            matches := re.FindStringSubmatch(msg.Channel)
+            if len(matches) < 2 {
+                continue
+            }
+            allianceID := matches[1]
+
+            // 해당 alliance의 모든 세션에 메시지 전송
+            h.sessionsMu.RLock()
+            for sessionID, conn := range h.sessions {
+                if strings.HasPrefix(sessionID, allianceID+":") {
+                    if err := conn.WriteMessage(websocket.TextMessage, []byte(msg.Payload)); err != nil {
+                        log.Printf("Error writing to websocket: %v", err)
+                    }
+                }
+            }
+            h.sessionsMu.RUnlock()
+        }
+    }
+}
+```
+
+### 7.5 프로젝터 구현
 
 이벤트를 처리하여 읽기 모델을 업데이트하는 프로젝터를 구현합니다.
 
@@ -1271,9 +1778,9 @@ func (p *RaidProjector) HandleEvent(event ycq.Event) error {
 }
 ```
 
-## 7. 확장성 및 성능 고려사항
+## 8. 확장성 및 성능 고려사항
 
-### 7.1 확장성 전략
+### 8.1 확장성 전략
 
 1. **수평적 확장**
    - 각 서비스를 독립적으로 확장 가능
@@ -1283,7 +1790,107 @@ func (p *RaidProjector) HandleEvent(event ycq.Event) error {
    - 목적별 특화된 읽기 모델 구현
    - 캐싱 전략을 통한 읽기 성능 향상
 
-### 7.2 성능 최적화
+### 8.2 이벤트 소싱과 상태 기반 모델의 통합
+
+이송 모집 기능은 상태 기반 모델을 사용하고, 이송 실행은 이벤트 소싱 기반 CQRS를 사용합니다. 이 두 모델을 효과적으로 통합하는 방법을 설명합니다.
+
+#### 8.2.1 상태 기반 모델과 이벤트 소싱 모델의 경계
+
+```mermaid
+flowchart TB
+    subgraph "상태 기반 모델 (이송 모집)"
+        RecruitmentService["이송 모집 서비스"]
+        RecruitmentRepo["이송 모집 리포지토리"]
+        RecruitmentNotifier["이송 모집 알림 서비스"]
+    end
+
+    subgraph "이벤트 소싱 모델 (CQRS)"
+        GuildMineCQRS["GuildMineCQRS 서비스"]
+        CommandBus["명령 버스"]
+        EventStore["이벤트 저장소"]
+        EventBus["이벤트 버스"]
+    end
+
+    RecruitmentService --> RecruitmentRepo
+    RecruitmentService --> RecruitmentNotifier
+    RecruitmentService --> GuildMineCQRS
+    GuildMineCQRS --> CommandBus
+    CommandBus --> EventStore
+    EventStore --> EventBus
+    EventBus -.-> RecruitmentService
+```
+
+#### 8.2.2 통합 전략
+
+1. **명확한 경계 정의**
+   - 이송 모집: 참가자 관리, 실시간 상태 동기화, 만료 처리 (상태 기반)
+   - 이송 실행: 이송 시작, 진행, 완료, 약탈, 방어 (이벤트 소싱)
+
+2. **단방향 의존성**
+   - 이송 모집 서비스는 GuildMineCQRS 서비스에 의존
+   - GuildMineCQRS 서비스는 이송 모집 서비스에 직접 의존하지 않음
+
+3. **통합 지점**
+   - 이송 모집이 완료되면 각 참가자에 대해 이송 시작 명령 생성
+   - 이송 모집 서비스가 GuildMineCQRS 서비스의 StartTransport 메서드 호출
+
+```go
+// 이송 모집 출발 처리 시 CQRS 시스템과 통합
+func (s *TransportRecruitmentServiceImpl) processDeparture(ctx context.Context, recruitment *TransportRecruitment) error {
+    // 출발 처리 로직...
+
+    // 각 참가자별로 이송 시작 명령 생성
+    for _, participant := range recruitment.Participants {
+        cmd := StartTransportCommand{
+            GuildID:    recruitment.AllianceID,
+            PlayerID:   participant.PlayerID,
+            GeneralID:  participant.GeneralID,
+            MineID:     recruitment.MineID,
+            CartCount:  recruitment.CartCount / recruitment.CurrentParticipants, // 수레 균등 분배
+            StartedAt:  *recruitment.DepartureTime,
+        }
+
+        // CQRS 서비스 호출
+        err := s.guildMineCQRS.StartTransport(ctx, cmd)
+        if err != nil {
+            // 오류 로깅 (실패해도 계속 진행)
+            log.Printf("Failed to start transport for player %s: %v", participant.PlayerID, err)
+        }
+    }
+
+    return nil
+}
+```
+
+#### 8.2.3 이벤트 구독 (선택적)
+
+이벤트 소싱 시스템의 이벤트를 구독하여 이송 모집 상태를 업데이트할 수도 있습니다.
+
+```go
+// 이벤트 구독 처리
+func (s *TransportRecruitmentServiceImpl) SubscribeToTransportEvents(ctx context.Context) {
+    subscription := s.eventBus.Subscribe("TransportEvents")
+    defer subscription.Close()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case event := <-subscription.Events():
+            switch e := event.(type) {
+            case *TransportCompletedEvent:
+                // 완료된 이송과 관련된 모집 정보 업데이트
+                s.updateRecruitmentStatus(ctx, e.GuildID, e.TransportID)
+            case *TransportRaidedEvent:
+                // 약탈된 이송과 관련된 모집 정보 업데이트
+                s.updateRecruitmentStatus(ctx, e.GuildID, e.TransportID)
+            }
+        }
+    }
+}
+```
+
+### 8.3 성능 최적화
 
 1. **이벤트 배치 처리**
    - 이벤트 처리 및 프로젝션 배치화
@@ -1293,9 +1900,9 @@ func (p *RaidProjector) HandleEvent(event ycq.Event) error {
    - WebSocket 연결 풀링
    - 선택적 이벤트 구독을 통한 네트워크 트래픽 최소화
 
-## 8. 분산 환경에서의 실시간성 구현 전략
+## 9. 분산 환경에서의 실시간성 구현 전략
 
-### 8.1 분산 환경에서의 시간 기반 이벤트 처리
+### 9.1 분산 환경에서의 시간 기반 이벤트 처리
 
 1. **멱등성이 보장되는 이벤트 처리**
    - 각 이벤트에 고유 ID 부여로 중복 처리 방지
@@ -1343,7 +1950,7 @@ sequenceDiagram
     end
 ```
 
-### 8.2 그룹 기반 실시간 알림 시스템
+### 9.2 그룹 기반 실시간 알림 시스템
 
 1. **그룹 구독 메커니즘**
    - 연합/길드 ID 기반 이벤트 구독 채널 구성
@@ -1389,7 +1996,7 @@ sequenceDiagram
     WSGateway->>Client: 이벤트 재동기화
 ```
 
-### 8.3 낙관적 동시성 제어 구현
+### 9.3 낙관적 동시성 제어 구현
 
 1. **버전 기반 낙관적 동시성 제어**
    - 모든 엔티티에 버전 필드 포함
@@ -1442,7 +2049,7 @@ sequenceDiagram
     end
 ```
 
-### 8.4 클라이언트 실시간 동기화
+### 9.4 클라이언트 실시간 동기화
 
 1. **낙관적 UI 업데이트**
    - 클라이언트에서 명령 실행 즉시 UI 업데이트
@@ -1454,9 +2061,9 @@ sequenceDiagram
    - 상태 변경 이벤트 수신 시 로컬 상태 업데이트
    - 연결 복구 시 마지막 이벤트 ID 기준 재동기화
 
-## 9. 설계 평가 및 검토
+## 10. 설계 평가 및 검토
 
-### 9.1 분산 환경을 고려한 설계 선택 이유
+### 10.1 분산 환경을 고려한 설계 선택 이유
 
 본 CQRS 및 이벤트 소싱 아키텍처를 선택한 주요 이유는 다음과 같습니다:
 
@@ -1495,9 +2102,9 @@ sequenceDiagram
    - Redis는 분산 환경에서의 Pub/Sub 및 그룹 기반 메시징에 최적화됨
    - Go 언어는 동시성 처리와 분산 시스템 구현에 효과적
 
-### 9.2 각 설계 요소의 장단점
+### 10.2 각 설계 요소의 장단점
 
-#### 9.2.1 CQRS 패턴
+#### 10.2.1 CQRS 패턴
 
 **장점:**
 - 읽기와 쓰기 모델의 독립적 확장 가능
@@ -1514,7 +2121,7 @@ sequenceDiagram
 - 이벤트 처리 지연 시 사용자 경험 저하
 - 트랜잭션 관리의 복잡성
 
-#### 9.2.2 이벤트 소싱
+#### 10.2.2 이벤트 소싱
 
 **장점:**
 - 모든 상태 변경의 완벽한 감사 추적
@@ -1531,7 +2138,7 @@ sequenceDiagram
 - 대량의 이벤트 처리 시 성능 저하 가능성
 - 이벤트 재생 시간이 길어질 수 있음
 
-#### 9.2.3 Redis 기반 이벤트 버스
+#### 10.2.3 Redis 기반 이벤트 버스
 
 **장점:**
 - 고성능 메시징 및 실시간 처리
@@ -1548,7 +2155,7 @@ sequenceDiagram
 - 메모리 부족 시 성능 저하 또는 장애
 - 대규모 메시지 처리 시 네트워크 병목 현상
 
-#### 9.2.4 MongoDB 기반 이벤트 저장소
+#### 10.2.4 MongoDB 기반 이벤트 저장소
 
 **장점:**
 - 스키마 유연성으로 이벤트 데이터 저장에 적합
@@ -1565,9 +2172,9 @@ sequenceDiagram
 - 복잡한 집계 쿼리의 성능 이슈
 - 샤딩 구성 시 관리 복잡성
 
-### 9.3 분산 환경에서의 잠재적 문제점 및 해결 방안
+### 10.3 분산 환경에서의 잠재적 문제점 및 해결 방안
 
-#### 9.3.1 분산 환경에서의 일관성 문제
+#### 10.3.1 분산 환경에서의 일관성 문제
 
 **문제:**
 - 이벤트 처리 지연으로 인한 읽기 모델과 쓰기 모델 간 불일치
@@ -1581,7 +2188,7 @@ sequenceDiagram
 - 클라이언트에 일시적 불일치 가능성 안내 및 UI 대응
 - 중요 작업에 대한 이벤트 처리 완료 확인 메커니즘
 
-#### 9.3.2 분산 환경에서의 성능 및 확장성 문제
+#### 10.3.2 분산 환경에서의 성능 및 확장성 문제
 
 **문제:**
 - 이벤트 수 증가에 따른 저장소 크기 및 처리 시간 증가
@@ -1596,7 +2203,7 @@ sequenceDiagram
 - 그룹별 메시지 배치 처리 및 우선순위 큐 구현
 - MongoDB 인덱스 최적화 및 읽기 선호 복제본 활용
 
-#### 9.3.3 분산 환경에서의 장애 복구 문제
+#### 10.3.3 분산 환경에서의 장애 복구 문제
 
 **문제:**
 - 서비스 장애 시 이벤트 손실 가능성
@@ -1612,7 +2219,7 @@ sequenceDiagram
 - 서버 노드 간 상태 동기화 메커니즘
 - 장애 노드 자동 감지 및 요청 리라우팅
 
-#### 9.3.4 분산 환경에서의 운영 복잡성
+#### 10.3.4 분산 환경에서의 운영 복잡성
 
 **문제:**
 - 분산 시스템 디버깅 및 모니터링 어려움
@@ -1628,7 +2235,7 @@ sequenceDiagram
 - 중앙화된 설정 관리 시스템 도입
 - 그룹 구독 정보의 분산 캐싱 및 동기화 메커니즘
 
-### 9.4 종합 평가
+### 10.4 종합 평가
 
 본 CQRS 및 이벤트 소싱 아키텍처는 분산 서버 환경에서 광산 이송과 약탈 컨텐츠의 실시간성을 효과적으로 구현할 수 있는 강력한 접근 방식입니다. 이 설계는 다음과 같은 주요 이점을 제공합니다:
 
@@ -1666,9 +2273,9 @@ sequenceDiagram
 
 결론적으로, 본 설계는 분산 서버 환경에서 게임의 복잡한 비즈니스 요구사항을 충족하면서도 확장성과 유지보수성을 갖춘 견고한 아키텍처를 제공합니다. 멱등성 보장과 낙관적 동시성 제어를 통해 분산 시스템의 안정성을 확보하고, 그룹 기반 알림 시스템을 통해 실시간 상호작용을 효과적으로 지원합니다. 초기 구현 복잡성과 운영 부담이 증가할 수 있지만, 장기적으로는 시스템의 유연성과 안정성을 크게 향상시킬 것으로 평가됩니다.
 
-## 10. 결론
+## 11. 결론
 
-본 문서에서 제안한 CQRS 및 이벤트 소싱 아키텍처는 분산 서버 환경에서 광산 이송과 약탈 컨텐츠의 실시간성을 효과적으로 구현할 수 있는 방법을 제시합니다. MongoDB와 Redis를 활용한 이 설계는 확장성과 성능을 모두 고려하면서 복잡한 게임 로직을 명확하게 분리하여 관리할 수 있게 합니다.
+본 문서에서는 길드 금광 이송 시스템을 CQRS 패턴과 이벤트 소싱을 활용하여 설계하는 방법을 제시하였습니다. 또한 이송 모집 기능을 위한 상태 기반 모델과 그 통합 방안도 함께 제시하였습니다. 이 설계는 분산 서버 환경에서 광산 이송과 약탈 컨텐츠의 실시간성을 효과적으로 구현할 수 있는 방법을 제공합니다. MongoDB와 Redis를 활용한 이 설계는 확장성과 성능을 모두 고려하면서 복잡한 게임 로직을 명확하게 분리하여 관리할 수 있게 합니다.
 
 이 아키텍처는 분산 시스템의 특성을 고려하여 설계되었으며, 다음과 같은 핵심 요구사항을 효과적으로 충족합니다:
 
@@ -1679,6 +2286,14 @@ sequenceDiagram
 3. **그룹 기반 알림**: 연합/길드 ID 기반의 이벤트 구독 채널을 구성하여, 그룹에 속한 모든 사용자가 상태 변화 알림을 효율적으로 받을 수 있습니다.
 
 4. **낙관적 동시성 제어**: 모든 엔티티에 버전 필드를 포함하고 MongoDB의 FindOneAndUpdate 연산을 활용하여, 분산 환경에서도 데이터 일관성을 보장합니다.
+
+5. **모델 다양성**: 각 도메인 특성에 맞는 모델링 접근 방식을 적용하였습니다.
+   - 이송 실행: 이벤트 소싱 기반 CQRS (감사 추적, 상태 재구성 중요)
+   - 이송 모집: 상태 기반 모델 (실시간 동기화, 빈번한 상태 변경 중요)
+
+이 설계는 복잡한 도메인 로직과 실시간 상호작용이 필요한 게임 시스템에 적합하며, 특히 여러 플레이어가 동시에 상호작용하는 길드 기반 컨텐츠에 효과적입니다. 또한 3-Tier 아키텍처 내에서 CQRS 서비스를 독립적으로 구현함으로써 게임 서버와 운영툴 서버 모두에서 재사용 가능한 구조를 제공합니다.
+
+이송 모집 기능은 매치 룸과 유사한 실시간 참가자 동기화가 필요한 기능으로, 상태 기반 모델을 사용하여 효율적으로 구현하였습니다. 이는 이벤트 소싱 기반 CQRS와 함께 사용되어 각 도메인의 특성에 맞는 최적의 모델링 접근 방식을 적용한 사례입니다.
 
 이 설계는 분산 환경에서 발생할 수 있는 다양한 문제점들(일관성 문제, 성능 및 확장성 문제, 장애 복구 문제, 운영 복잡성)에 대한 해결 방안을 함께 제시함으로써, 안정적이고 유지보수 가능한 시스템을 구축할 수 있는 기반을 제공합니다.
 
